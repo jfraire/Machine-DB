@@ -1,0 +1,258 @@
+#! /usr/bin/env perl
+
+use lib 'lib';
+use YAML qw(LoadFile);
+use Try::Tiny;
+use Data::Dumper;
+use Getopt::Long;
+use Pod::Usage;
+use EV;
+use AnyEvent::MQTT;
+use AnyEvent;
+use DBI;
+use POSIX qw(strftime);
+use strict;
+use warnings;
+use v5.10;
+
+our $VERSION = '0.01';
+
+log_always("Starting");
+
+# Processing of command line options
+my $verbose;
+my $help;
+
+
+Getopt::Long::Configure('bundling');
+GetOptions(
+    'v|verbose'  => \$verbose,
+    'V|version'  => sub { die "$0 - $VERSION\n" },
+    'help|?'     => \$help,
+) or pod2usage(-verbose => 0);
+
+pod2usage(-verbose => 2) if $help;
+
+log_notice("Working directory: " . `pwd`);
+
+# Processing of the configuration file
+my $config_file = shift;
+pod2usage(
+    -message => log_error("A configuration file is required"),
+    -verbose => 1, 
+    -exitval => 1)
+    unless defined $config_file && -r $config_file;
+
+my $config;
+try { 
+    log_notice("Loading configuration file at $config_file");
+    $config = LoadFile($config_file);
+}
+catch {
+    pod2usage(
+        -message  => log_error("Parsing of the configuration file failed: $_"),
+        -exitval  => 1,
+        -verbose  => 99,
+        -sections => "CONFIGURATION FILE",
+    )
+};
+
+# Connect to the MQTT broker
+my $mqtt;
+try {
+    my $c = $config->{Broker};
+    die "Broker section is missing from the configuration file"
+        unless defined $c;
+    $mqtt = AnyEvent::MQTT->new(%$c);
+    log_notice('Connecting to broker at <' . $c->{host} .'>');
+}
+catch {
+    pod2usage(
+        -message  => log_error("Connection to the MQTT broker failed: $_"),
+        -exitval  => 1,
+        -verbose  => 99,
+        -sections => "CONFIGURATION FILE/MQTT broker",
+    )
+};
+
+# Connect to the database
+my $dbh;
+try {
+    my $c      = $config->{Database};
+    my $drv    = $c->{driver}     || die "Database driver is missing";
+    my $dbname = $c->{DBname}     || die "DBname is missing";
+    my $acomm  = $c->{autoCommit} || 1;
+    log_notice("Connecting to <$drv> database <$dbname>");
+    
+    $dbh = DBI->connect(
+        "dbi:$drv:dbname=$dbname", 
+        $c->{user}, 
+        $c->{password},
+        { AutoCommit => $acomm, RaiseError => 1 })
+        || die "Could not connect to the database: $DBI::errstr";
+}
+catch {
+    pod2usage(
+        -message  => log_error("Connection to the database failed: $_"),
+        -exitval  => 1,
+        -verbose  => 99,
+        -sections => "CONFIGURATION FILE/Database",
+    )
+};
+
+# Process list of topics
+foreach my $conv (@{$config->{Topics}}) {
+	my ($nam) = keys %$conv;
+    my ($def) = values %$conv;
+#    say Dumper $def; 
+    log_notice("Setting up conversation <$nam>");
+    
+    try {
+		# Load the class that should process the current topic
+		my $class   = $def->{'process with'} || 'Default';
+		$class      = "Machine::DB::$class";
+		log_notice("Loading $class for conversation <$nam>");
+		eval "require $class";
+		die "Error loading processing class <$class>: $@"
+			if $@;
+
+		# Build the topic to subscribe to, and its callback
+		log_notice("Building callback for conversation <$nam>");
+		my ($topic, $cb) = $class->build_callback($mqtt, $dbh, $def);
+			
+		# Subscribe to the given MQTT topic
+		log_notice("Subscribing to conversation <$nam> with topic <$topic>");
+		my $s = $mqtt->subscribe(
+			topic    => $topic,
+			callback => $cb
+		);
+		$s->recv;
+	}
+	catch {
+		log_error("Failed setting up conversation <$nam>: $_") 
+			&& exit 1;
+	};
+}
+
+# If the database is not in auto-commit mode, commit every
+my $commit_timer;
+if (!$config->{Database}{autoCommit}) {
+	$commit_timer = AnyEvent->timer( 
+		interval => $config->{Database}{'commit every'} || 10,
+		cb       => sub { 
+			$dbh->commit if $changed;
+			$changed = 0;
+		}
+	);
+}
+
+# Falta agregar tratamiento de senales (stop, restart)
+
+my $cv = AnyEvent->condvar;
+
+# Enter the async loop. Disconnect from the database before exiting.
+log_verbose("Entering asynchronous loop");
+$cv->recv;
+
+log_notice("Disconnecting from the database");
+$dbh->disconnect;
+log_always("Exiting");
+exit 0;
+
+sub log_always {
+	my $msg = shift;
+	my $ts = strftime("%Y-%m-%d %H:%M:%S", localtime());
+	say "$ts - $0 - $msg";
+}
+
+sub log_notice {
+	my $msg = shift;
+	return unless $verbose;
+	my $ts = strftime("%Y-%m-%d %H:%M:%S", localtime());
+	say "$ts - $0 - $msg";
+}
+
+sub log_error {
+	my $msg = shift;
+	my $ts = strftime("%Y-%m-%d %H:%M:%S", localtime());
+	my $errstr =  "$ts - $0 - ERROR: $msg";
+	say STDERR $errstr;
+	return $errstr;
+}
+
+=pod
+
+=head1 NAME
+
+mqtt2bd - Simple database interaction for MQTT messages
+
+=head1 SYNOPSIS
+
+ mqtt2db [options] config_file.yml
+ 
+ Options:
+ 
+ v, verbose     Turn on notice messages
+ V, version     Show program version and exit
+ ?, help        Show the documentation and exit
+ 
+ See the documentation for the description of the configuration file.
+
+=head1 DESCRIPTION
+
+=head1 OPTIONS
+
+=head1 CONFIGURATION FILE
+
+The configuration file is in YAML. There is an example configuration file in this distribution. You can find the YAML specification here: L<http://yaml.org/spec/1.0/>.
+
+It requires the following top-level sections: 
+
+=head2 MQTT broker
+
+This section defines the connection parameters for the MQTT broker. These come from L<AnyEvent::MQTT>; the contents of this section are passed as-is to the constructor. The most common are:
+
+=over
+
+=item * host - IP address of the broker. It is 'localhost' by default.
+
+=item * port - Port the broker is listening to. Defaults to 1883.
+
+=item * timeout - Timeout for response from the server. 
+
+=item * user_name - User name for the broker.
+
+=item * password - Password for the broker.
+
+=item * will_topic, will_message, will_qos, will_retain - Configuration for a message that is sent when this program disconnects from the broker.
+
+=back
+
+The example configuration file includes:
+
+ Broker:
+    host: localhost
+    will_topic: mqtt2db/disconnected
+    will_message: "Program mqtt2db is disconnected from broker"
+    client_id: mqtt2db
+
+=head2 Database
+
+This section defines the database connection parameters using a mapping of scalars:
+
+ Database:
+    Driver: SQLite
+    DBname: example.db
+    User: ~
+    Password: ~
+
+These four options are required.
+
+=head2 Topics
+
+This section defines the list of topics that this program will handle.
+
+=head1 LICENSE
+
+=cut
+

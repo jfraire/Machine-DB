@@ -1,0 +1,4 @@
+name = "Machine-DB"
+# badges = ["travis"]
+module_maker="ModuleBuildTiny"
+
