@@ -120,8 +120,14 @@ foreach my $conv (@{$config->{Topics}}) {
     
     try {
 		# Load the class that should process the current topic
-		my $class   = $def->{'handler'} || 'Default';
-		$class      = "Machine::DB::Handler::$class";
+		my $class;
+        if ($def->{'handler'}) {
+            $class = "Machine::DB::Handler::" . $def->{'handler'};
+        }
+        else {
+            $class = 'Machine::DB::Handler';
+        }
+
 		log_notice("Loading $class for conversation <$nam>");
 		eval "require $class";
 		die "Error loading class <$class>: $@"
