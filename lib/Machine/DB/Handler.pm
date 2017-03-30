@@ -261,7 +261,7 @@ sub preprocess {
 sub postprocess {
     my ($self, $dbh, $data) = @_;
     
-    foreach my $code (@{ $self->preprocess_callbacks }) {
+    foreach my $code (@{ $self->postprocess_callbacks }) {
         $code->($self, $dbh, $data);
     }
 }

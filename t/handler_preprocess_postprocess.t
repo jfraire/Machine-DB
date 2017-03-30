@@ -1,4 +1,4 @@
-use Test::More tests => 5;
+use Test::More tests => 9;
 use JSON;
 use DBI;
 use strict;
@@ -34,11 +34,11 @@ my $msg     = encode_json { d => 33, e => 24 };
 my $expected = {
     topic   => 'this/is/the/Hondo',
     message => {
-        a    => 'writting',
+        a    => 'Smiling',
         b    => 'for',
         c    => 'Andy',
-        d    => 33,
-        e    => 24,
+        d    => 99,
+        e    => 48,
     },
 };
 
@@ -66,6 +66,33 @@ my $mqtt = bless {}, 'Mocked::MQTT';
 # Create the handler
 my $h = Machine::DB::Handler->new($def);
 ok ref $h, 'The handler was created successfully';
+
+# Preprocessing routines
+$h->add_to_preprocess(
+    sub {
+        my ($h, $dbh, $data) = @_;
+        # note explain $data; 
+        pass 'Preprocessing routine is running';
+        is $data->{a}, 'writting', 
+            'Preprocessing routine got expected data';
+        $data->{a} = 'Smiling';
+    },
+    sub {
+        my ($h, $dbh, $data) = @_;
+        $data->{e} *= 2;
+    },
+);
+
+$h->add_to_postprocess(
+    sub {
+        my ($h, $dbh, $data) = @_;
+        pass 'Postprocessing routine is running';
+        is $data->{a}, 'Smiling', 
+            'Postprocessing routine got expected data';
+        $data->{d} *= 3;
+    },
+);
+
 
 # Database connection
 my $dbh = DBI->connect('dbi:SQLite:dbname=t/callback_test.db', '', '', {
