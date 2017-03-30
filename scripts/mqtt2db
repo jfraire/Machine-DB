@@ -1,5 +1,16 @@
 #! /usr/bin/env perl
 
+=for comment
+
+Trabajo pendiente: 
+
+* Utilisar AE::log para Handler.
+* Poner los serializadores dentro de Handler
+* Hacer un nuevo esquema de BD especial para probar, mas simple
+* Ver que pasa con los valores nulos en Machine::Interface
+
+=cut
+
 use lib 'lib';
 use YAML qw(LoadFile);
 use Try::Tiny;
@@ -81,7 +92,7 @@ try {
     my $c      = $config->{Database};
     my $drv    = $c->{driver}     || die "Database driver is missing";
     my $dbname = $c->{DBname}     || die "DBname is missing";
-    my $acomm  = $c->{autoCommit} || 1;
+    my $acomm  = $c->{autoCommit} // 1;
     log_notice("Connecting to <$drv> database <$dbname>");
     
     $dbh = DBI->connect(
@@ -109,27 +120,27 @@ foreach my $conv (@{$config->{Topics}}) {
     
     try {
 		# Load the class that should process the current topic
-		my $class   = $def->{'process with'} || 'Default';
-		$class      = "Machine::DB::$class";
+		my $class   = $def->{'handler'} || 'Default';
+		$class      = "Machine::DB::Handler::$class";
 		log_notice("Loading $class for conversation <$nam>");
 		eval "require $class";
-		die "Error loading processing class <$class>: $@"
+		die "Error loading class <$class>: $@"
 			if $@;
 
-		# Build the topic to subscribe to, and its callback
-		log_notice("Building callback for conversation <$nam>");
-		my ($topic, $cb) = $class->build_callback($mqtt, $dbh, $def);
-			
-		# Subscribe to the given MQTT topic
-		log_notice("Subscribing to conversation <$nam> with topic <$topic>");
+        log_notice("Instantiating handler for <$nam>"); 
+		$def->{'topic name'} = $nam;
+        my $handler = $class->new($def);
+		
+		log_notice("Subscribing to conversation <$nam> with topic <"
+            . $handler->subscription_topic . ">");
 		my $s = $mqtt->subscribe(
-			topic    => $topic,
-			callback => $cb
+			topic    => $handler->subscription_topic,
+			callback => $handler->subscription_callback($dbh, $mqtt)
 		);
 		$s->recv;
 	}
 	catch {
-		log_error("Failed setting up conversation <$nam>: $_") 
+		log_error("Failed setting up conversation <$nam>: $_")
 			&& exit 1;
 	};
 }
@@ -138,24 +149,29 @@ foreach my $conv (@{$config->{Topics}}) {
 my $commit_timer;
 if (!$config->{Database}{autoCommit}) {
 	$commit_timer = AnyEvent->timer( 
+        after    => $config->{Database}{'commit every'} || 10,
 		interval => $config->{Database}{'commit every'} || 10,
 		cb       => sub { 
-			$dbh->commit if $changed;
-			$changed = 0;
+			$dbh->commit;
 		}
 	);
 }
 
-# Falta agregar tratamiento de senales (stop, restart)
-
 my $cv = AnyEvent->condvar;
 
+# Falta agregar tratamiento de senales (stop, restart)
+my $w = AnyEvent->signal(
+    signal => 'HUP',
+    cb     => sub { $cv->send }
+);
+
 # Enter the async loop. Disconnect from the database before exiting.
-log_verbose("Entering asynchronous loop");
+log_notice("Entering asynchronous loop");
 $cv->recv;
 
 log_notice("Disconnecting from the database");
 $dbh->disconnect;
+$mqtt->cleanup;
 log_always("Exiting");
 exit 0;
 

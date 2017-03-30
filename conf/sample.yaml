@@ -8,11 +8,11 @@ Broker:
     client_id: mqtt2db
 
 # See DBI and the driver for your database for connection options
-# If autoCommit is set to 0, changes will be commited every 
+# If autoCommit is set to 0, changes will be commited every
 # 'commit every' seconds
 Database:
     driver: SQLite
-    DBname: example.db
+    DBname: t/example.db
     user: ~
     password: ~
     autoCommit: 0
@@ -20,74 +20,83 @@ Database:
 
 Topics:
     - Machine started:
-        topic: "machine/:id/connected"
+        topic:   "machine/:machine_id/connected"
         SQL: >
             SELECT part_number
-            FROM production_plan JOIN manufacturing_orders USING (man_order)
-            WHERE machine_id = ? AND prod_date = ? AND shift = ?
+            FROM machine_state
+            WHERE machine_id = ?
         place holders:
-            - id
-            - today
-            - shift
-        process_with: AVO
-    - Activate reference:
-        topic: "machine/:id/activate/:part_number
+            - machine_id
+        response:
+            topic: "machine/:machine_id/reference/set"
+            fields:
+                - part_number
+
+    - Request reference:
+        topic:    "machine/:machine_id/reference/get"
+        SQL: >
+            SELECT part_number
+            FROM machine_state
+            WHERE machine_id = ?
+        place holders:
+            - machine_id
+        response:
+            topic: "machine/:machine_id/reference/set"
+            fields:
+                - part_number
+
+    - Request for parameters:
+        topic:    "machine/:machine_id/parameters/get"
+        SQL: >
+            SELECT parameters
+            FROM machine_state JOIN machines USING (machine_id) JOIN parameters USING (machine_type)
+            WHERE machine_id = ?
+        place holders:
+            - machine_id
+        response:
+            topic: "machine/:machine_id/parameters/set"
+            fields:
+                - parameters
 
     - Change of state:
         topic: "machine/:id/state/update"
+        implode all but:
+            fields:
+                - machine_id
+                - part_number
+                - state_number
+                - alarm_number
+                - screen_number
+            destination: parameters
         SQL: >
-            UPDATE machine_state 
-            SET mode = ?, alarm = ?
-            WHERE area = ? AND type = ? AND id = ? 
+            UPDATE machine_state
+            SET state_number = ?, alarm_number = ?, current_params = ?
+            WHERE machine_id = ?
         place holders:
-            - mode
-            - alarm
-            - area
-            - type
+            - state_number
+            - alarm_number
+            - parameters
             - id
-    - Logging of new parameters:
-        topic: ":area/:type/:id/parameters/update"
-        SQL: >
-            INSERT INTO parameters_log (
-                area, type, id, sta1_hor, sta1_ver, sta2_hor, sta2_ver
-            ) VALUES (?,?,?,?,?,?,?,?)
-        place holders:
-            - area
-            - type
-            - id
-            - sta1_hor
-            - sta1_ver
-            - sta2_hor
-            - sta2_ver
+
     - Logging of new cycles:
-        topic: ":area/:type/:id/cycle"
+        topic: "machine/:id/cycle"
         SQL: >
-            INSERT INTO cycles_log (
-            SET mode = ?, alarm = ?
-            WHERE area = ? AND type = ? AND id = ? 
+            INSERT INTO cycle_log (machine_id, registered_on,
+            cycle_quality, defect_number, cycle_time, measurements)
+            VALUES (?, ?, ?, ?, ?, ?)
         place holders:
-            - mode
-            - alarm
-            - area
-            - type
             - id
-    - Request for planned reference:
-        topic:     ":area/:type/:id/reference/get"
-        response:  ":area/:type/:id/parameters"
+            - timestamp
+            - accepted
+            - reject_reason
+            - cycle_time
+            - measurements
+    
+    - Machine disconnected:
+        topic: "machine/:id/disconnected"
         SQL: >
-            SELECT reference FROM production_plan
-            WHERE area = ? AND type = ? AND id = ?
+            UPDATE machine_state
+            SET state_number = 0, alarm_number = 0, current_params = NULL
+            WHERE machine_id = ?
         place holders:
-            - area
-            - type
             - id
-    - Request for parameters:
-        topic: ":area/:type/:id/parameters/get"
-        response: ":area/:type/:id/parameters"
-        SQL: >
-            SELECT * FROM parameters 
-            WHERE type = ? AND reference = ?
-        place holders:
-            - type
-            - reference
-        process with: Sereal

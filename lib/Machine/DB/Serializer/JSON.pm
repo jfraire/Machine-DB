@@ -2,21 +2,18 @@ package Machine::DB::Serializer::JSON;
 
 use JSON;
 use Role::Tiny;
+use namespace::clean;
 use strict;
 use warnings;
 
-# This method receives its class name, the parsed topic as a hash 
-# reference and the contents of the MQTT message in a string. 
-# It returns a hash reference with both topic and message fields.
-# The message string must contain a JSON object
-sub decode_msg {
-	my ($class, $msg) = @_;
-	my $data = json_decode $msg;
+sub decode {
+	my ($self, $msg) = @_;
+	my $data = decode_json $msg;
 }
 
 sub encode {
-    my ($class, $msg) = @_;
-    return json_encode $msg;
+    my ($self, $msg) = @_;
+    return encode_json $msg;
 }
 
 1;

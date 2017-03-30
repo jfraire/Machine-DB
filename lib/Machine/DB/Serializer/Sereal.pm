@@ -9,11 +9,7 @@ use warnings;
 my $encoder = Sereal::Encoder->new;
 my $decoder = Sereal::Decoder->new;
 
-# This method receives its class name, the parsed topic as a hash 
-# reference and the contents of the MQTT message in a string. 
-# It returns a hash reference with both topic and message fields.
-# The message string must contain a Sereal-encoded hash reference.
-sub decode_msg {
+sub decode {
 	my ($class, $msg) = @_;
 	my $data = $decoder->decode($msg);
 }

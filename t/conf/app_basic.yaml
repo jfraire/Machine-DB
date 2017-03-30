@@ -1,0 +1,68 @@
+---
+# See AnyEvent::MQTT for broker connection options
+Broker:
+    host: localhost
+    will_topic: mqtt2db/disconnected
+    will_message: "Program mqtt2db has disconnected from broker"
+    will_retain: 1
+    client_id: mqtt2db
+
+# See DBI and the driver for your database for connection options
+# If autoCommit is set to 0, changes will be commited every
+# 'commit every' seconds
+Database:
+    driver: SQLite
+    DBname: t/app_test.db
+    user: ~
+    password: ~
+    autoCommit: 1
+    commit every: 10
+
+Topics:
+    - Simple SQL statements and responses:
+        topic:   "machine/:integer_key/insert"
+        SQL: >
+            INSERT INTO test_table (integer_key, text_field)
+            VALUES (?, ?)
+        place holders:
+            - integer_key
+            - text_field
+        response:
+            topic: "machine/:integer_key/inserted"
+            fields:
+                - text_field
+
+    - Select statement:
+        topic: "machine/:integer_key/select"
+        SQL: >
+            SELECT text_field FROM test_table WHERE integer_key = ?
+        place holders:
+            - integer_key
+        response:
+            topic: "machine/:integer_key/selected"
+            fields:
+                - text_field
+            
+    - Combined statements:
+        topic: "machine/:integer_key/combined"
+        SQL statements:
+            -
+                SQL: >
+                    UPDATE test_table SET text_field='Blah blah'
+                    WHERE integer_key = ?
+                place holders:
+                    - integer_key
+            -
+                SQL: >
+                    SELECT text_field
+                    FROM test_table
+                    WHERE integer_key = ?
+                place holders:
+                    - integer_key
+
+        response:
+            topic: "machine/combined"
+            fields:
+                - integer_key
+                - text_field
+                    
