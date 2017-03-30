@@ -4,7 +4,7 @@ use DBI;
 use strict;
 use warnings;
 
-use_ok 'Machine::DB::Handler::Default';
+use_ok 'Machine::DB::Handler';
 
 # SQL insert statement
 my $sql = <<SQL;
@@ -50,7 +50,7 @@ my $msg     = encode_json { hola => 33, dos => 2 };
 my $mqtt = bless {}, 'Mocked::MQTT';
 
 # Create the handler
-my $h = Machine::DB::Handler::Default->new($def);
+my $h = Machine::DB::Handler->new($def);
 ok ref $h, 'The handler was created successfully';
 
 # Database connection

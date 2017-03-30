@@ -3,9 +3,9 @@ use JSON;
 use strict;
 use warnings;
 
-use_ok 'Machine::DB::Handler::Default';
+use_ok 'Machine::DB::Handler';
 
-my $h = Machine::DB::Handler::Default->new(
+my $h = Machine::DB::Handler->new(
     'topic name'     => 'Testing handlers',
     'topic'          => ':this/is/:a/:test',
     'SQL'            => 'sql statement',

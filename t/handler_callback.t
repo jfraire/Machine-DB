@@ -4,7 +4,7 @@ use DBI;
 use strict;
 use warnings;
 
-use_ok 'Machine::DB::Handler::Default';
+use_ok 'Machine::DB::Handler';
 
 # SQL insert statement
 my $sql = <<SQL;
@@ -26,7 +26,7 @@ my $topic   = 'writting/is/for/Andy';
 my $msg     = encode_json { uno => 1, dos => 2, crayola => $crayola };
 
 # Create the handler
-my $h = Machine::DB::Handler::Default->new($def);
+my $h = Machine::DB::Handler->new($def);
 ok ref $h, 'The handler was created successfully';
 
 # Database connection

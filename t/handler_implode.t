@@ -1,6 +1,6 @@
 use Test::More tests => 4;
-use Machine::DB::Handler::Default;
-use JSON;
+use Machine::DB::Handler;
+use Sereal::Decoder;
 use strict;
 use warnings;
 
@@ -11,7 +11,7 @@ my $data = {
     crayola => 'pineapples',
 };
 
-my $h = Machine::DB::Handler::Default->new(
+my $h = Machine::DB::Handler->new(
     'topic name'      => 'Testing handlers',
     'topic'           => ':this/is/:a/:test',
     'SQL'             => 'sql statement',
@@ -32,10 +32,8 @@ ok exists $imploded->{hola},
 ok not(ref($imploded->{hola})),
     'The destination field does not contain a reference';
 
-# note explain $imploded;
-$imploded->{hola} = decode_json $imploded->{hola};
-
-
+my $decoder = Sereal::Decoder->new;
+$imploded->{hola} =  $decoder->decode($imploded->{hola});
 
 my $expected = {
     hola => {

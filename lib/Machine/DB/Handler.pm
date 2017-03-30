@@ -1,11 +1,17 @@
 package Machine::DB::Handler;
 
 use Machine::DB::Responder;
+use JSON;
+use Sereal::Encoder;
+use Sereal::Decoder;
 use Moo;
 use Carp;
 use namespace::clean;
 use strict;
 use warnings;
+
+my $sereal_encoder = Sereal::Encoder->new;
+my $sereal_decoder = Sereal::Decoder->new;
 
 sub BUILDARGS {
     my $class = shift;
@@ -81,8 +87,36 @@ has responder => (
     predicate => 1,
 );
 
+has decode_msg_with => (
+    is        => 'ro',
+    init_arg  => 'decode with',
+    default   => 'JSON',
+    isa       => sub { 
+        croak 'Unknown decoder' 
+            unless ($_[0] eq 'JSON' || $_[0] eq 'Sereal');
+    },
+);
+
+has encode_msg_with => (
+    is        => 'ro',
+    init_arg  => 'encode with',
+    default   => 'JSON',
+    isa       => sub { 
+        croak 'Unknown encoder' 
+            unless ($_[0] eq 'JSON' || $_[0] eq 'Sereal');
+    },
+);
+
 has msg_parser => (
 	is  => 'lazy',
+);
+
+has msg_decoder => (
+    is => 'lazy',
+);
+
+has msg_encoder => (
+    is => 'lazy',
 );
 
 sub _build_msg_parser {
@@ -111,6 +145,26 @@ sub _build_msg_parser {
 	return $parser;
 }
 
+sub _build_msg_decoder {
+    my $self = shift;
+    if ($self->decode_msg_with eq 'Sereal') {
+        return sub { return $sereal_decoder->decode(shift) };
+    }
+    elsif ($self->decode_msg_with eq 'JSON') {
+        return sub { return decode_json(shift) };
+    }
+}
+
+sub _build_msg_encoder {
+    my $self = shift;
+    if ($self->decode_msg_with eq 'Sereal') {
+        return sub { return $sereal_encoder->encode(shift) };
+    }
+    elsif ($self->decode_msg_with eq 'JSON') {
+        return sub { return encode_json(shift) };
+    }
+}
+
 # This method receives the parsed topic as a hash reference and a 
 # string with the contents of the MQTT message. 
 # It must return a hash reference with both topic and message fields.
@@ -118,7 +172,7 @@ sub decode_msg {
 	my ($obj, $topic_hr, $msg) = @_; 
     return $topic_hr if not $msg;
 	my $data;
-	$data = $obj->decode($msg) if $msg;
+	$data = $obj->msg_decoder->($msg);
 	croak "Message could not be decoded or it is not a hash reference"
 		unless defined $data && ref $data eq 'HASH';
 	my %r = (%$data, %$topic_hr);
@@ -143,7 +197,7 @@ sub encode_msg {
     return '' unless defined $msg;
     croak "MQTT message must be a hash reference"
         unless ref $msg eq 'HASH';
-    return $self->encode($msg);
+    return $self->msg_encoder->($msg);
 }
 
 # Returns a new hash reference with the exploded field values
@@ -151,7 +205,7 @@ sub explode {
     my ($self, $data) = @_;
     foreach my $field (@{$self->explode_fields}) {
         my $value    = delete $data->{$field};
-        my $decoded  = $self->decode($value);
+        my $decoded  = $sereal_decoder->decode($value);
         croak "Exploded object could not be decoded or it is not a hash reference"
             unless defined $decoded && ref $decoded eq 'HASH';
         my %combined = (%$data, %$decoded);
@@ -171,7 +225,7 @@ sub implode {
     }
 
     my $dest = $self->implode_fields->{destination};
-    my $enc  = $self->encode($data);
+    my $enc  = $sereal_encoder->encode($data);
     $imploded{$dest} = $enc;
     return \%imploded;
 }
