@@ -119,6 +119,16 @@ has msg_encoder => (
     is => 'lazy',
 );
 
+has preprocess_callbacks => (
+    is => 'ro',
+    default => sub { [] }
+);
+
+has postprocess_callbacks => (
+    is => 'ro',
+    default => sub { [] }
+);
+
 sub _build_msg_parser {
 	my $self = shift;
 	
@@ -230,6 +240,32 @@ sub implode {
     return \%imploded;
 }
 
+sub add_to_preprocess {
+    my $self = shift;
+    push @{ $self->preprocess_callbacks }, @_;
+}
+
+sub add_to_postprocess {
+    my $self = shift;
+    push @{ $self->postprocess_callbacks }, @_;
+}
+
+sub preprocess {
+    my ($self, $dbh, $data) = @_;
+    
+    foreach my $code (@{ $self->preprocess_callbacks }) {
+        $code->($self, $dbh, $data);
+    }
+}
+
+sub postprocess {
+    my ($self, $dbh, $data) = @_;
+    
+    foreach my $code (@{ $self->preprocess_callbacks }) {
+        $code->($self, $dbh, $data);
+    }
+}
+
 sub subscription_callback {
 	my ($self, $dbh, $mqtt) = @_;
 	
@@ -243,6 +279,9 @@ sub subscription_callback {
         
         # Builds hash ref with the topic and body of the message
 		my $data = $self->parse_msg($topic, $msg);
+        
+        # Call pre-processing callbacks
+        $self->preprocess($dbh, $data);
         
         # Implode data
         $self->implode($data) if $self->has_implode_fields;
@@ -266,6 +305,9 @@ sub subscription_callback {
                 }
             }
         }
+        
+        # Call post-processing callbacks
+        $self->postprocess($dbh, $data);
         
         # Build the response
         if ($self->has_responder) {
