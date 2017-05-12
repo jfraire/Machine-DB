@@ -9,6 +9,7 @@ use Moo;
 use namespace::clean;
 use strict;
 use warnings;
+use v5.24;
 
 my $sereal_encoder = Sereal::Encoder->new;
 my $sereal_decoder = Sereal::Decoder->new;
@@ -55,6 +56,33 @@ has db_interactions => (
     is       => 'ro',
     required => 1,
     init_arg => 'SQL statements',
+    coerce   => sub {
+        # Get rid of SQL statement descriptions
+        AE::log('fatal', 
+            'SQL statements must be given in an array reference'
+        ) unless ref $_[0] eq 'ARRAY';
+
+        my @declarations = @{$_[0]};
+        
+        foreach (@declarations) {
+            next if exists $_->{SQL} && exists $_->{'place holders'};
+            ($_) = values %{$_};
+        }
+        $_[0] = \@declarations;
+    },
+    isa      => sub {
+        AE::log('fatal', 
+            'The list of SQL statements cannot be empty'
+        ) unless @{$_[0]} > 0;
+        foreach my $c (@{$_[0]}) {
+            AE::log('fatal',
+                "SQL statements must contain the key 'SQL'"
+            ) unless exists $c->{SQL};
+            AE::log('fatal',
+                "SQL statements must contain the key 'place holders'"
+            ) unless exists $c->{'place holders'};
+        }
+    },
 );
 
 has explode_fields => (

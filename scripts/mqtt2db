@@ -187,7 +187,7 @@ exit 0;
 
 =head1 NAME
 
-mqtt2bd - Simple database interaction for MQTT messages
+mqtt2bd - Simple database interaction through MQTT messages
 
 =head1 SYNOPSIS
 
@@ -203,9 +203,13 @@ mqtt2bd - Simple database interaction for MQTT messages
 
 =head1 DESCRIPTION
 
-=head1 OPTIONS
+This program implements a MQTT-based interface to a database. In order to work, it subscribes to a list of MQTT topics defined in its configuration file. Each topic may define one or more SQL statements to execute on the database and possibly, the definition of a response MQTT message.
 
-=head1 CONFIGURATION FILE
+The program parses incoming messages (both the topic and the body of the message) looking for the value of pre-defined fields. These fields are then stored in a sort of clipboard, the fields hash. SQL statements take their parameters from this fields hash and they put their results back in it as well. Finally, if there is a response, it may take fields from the hash and send these field values back in the message topic or body.
+
+Please note that this program is able to retrieve a single row of data from the database.
+
+=head1 CONFIGURATION
 
 The configuration file is in YAML. There is an example configuration file in this distribution. You can find the YAML specification here: L<http://yaml.org/spec/1.0/>.
 
@@ -227,7 +231,7 @@ This section defines the connection parameters for the MQTT broker. These come f
 
 =item * password - Password for the broker.
 
-=item * will_topic, will_message, will_qos, will_retain - Configuration for a message that is sent when this program disconnects from the broker.
+=item * will_topic, will_message, will_qos, will_retain - Define the message that is sent when this program disconnects from the broker.
 
 =back
 
@@ -253,9 +257,75 @@ These four options are required.
 
 =head2 Topics
 
-This section defines the list of topics that this program will handle.
+Topics are the most complex part of the configuration file. They are given as a list of hashes to improve readability. A sample definition might look like this:
+
+ Topics:
+    - Machine requests for parameters:
+        topic: :area/:machine_type/:machine_id/reference/get
+        SQL: >
+            SELECT next_reference
+            FROM   machine_state
+            WHERE  machine_id = ?
+        place holders:
+            - machine_id
+        response:
+            topic: :area/:machine_type/:machine_id/reference/set
+            fields:
+                - next_reference
+
+Each topic has a name (which is not used by the program), a topic, one or more SQL parameters, a list of place holders for the SQL parameters, and possibly, a response object. The functionality behind topics is hidden in the module Machine::DB::Handler.
+
+=head3 Topic
+
+Each topic in the configuration file needs a MQTT topic to subscribe to. This topic may include fields that need to be parsed in order to interact with the data base. These fields must be prepended with ':'. In the example above, we have the fields I<area>, I<machine_type>, and I<machine_id>. The resulting MQTT topic would be I<+/+/+/reference/get>.
+
+The fields thus parsed are put into a hash reference, which will then be merged with the contents of the message body.
+
+=head3 SQL Statements
+
+There are two ways of defining the SQL messages and their place holders that process incoming MQTT messages. If there is just one SQL statement, it can be defined with the SQL key along with its place holders:
+
+ topic: :area/:machine_type/:machine_id/reference/get
+ SQL: >
+    SELECT next_reference
+    FROM   machine_state
+    WHERE  machine_id = ?
+ place holders:
+    - machine_id
+
+On the other hand, if there are multiple statements, they have to be treated differently:
+ 
+ topic: :area/:machine_type/:machine_id/alarm/set
+ SQL statements:
+    - First statement description:
+        SQL: >
+            UPDATE machine_state
+            SET    alarm = ?
+            WHERE  machine_id = ?
+        place holders:
+            - machine_id
+            - alarm
+    - Second statement description:
+        SQL: >
+            SELECT next_reference
+            FROM   machine_state
+            WHERE  machine_id = ?
+        place holders:
+            - machine_id
+
+In the (meaningless) example above, the I<alarm> field would come from the body of the MQTT message. SQL statements would be executed in the given order and their results (in the case of SELECT statements) would be put in the hash of fields.
+
+=head3 Response Objects
+
+Optionally, the program may issue a response in the form of an MQTT message. Response objects are defined like this:
+
+ response:
+    topic: "machine/:machine_id/reference/set"
+    fields:
+        - part_number
+
+They only have a topic and a list of fields. The topic may contain fields, prpended with ':', whose values will be taken from the fields hash.
 
 =head1 LICENSE
 
 =cut
-

@@ -8,7 +8,9 @@ my $i   = 1;
 my @sql_statements;
 foreach (1..3) {
     my @ph = map { $i++ } (1..3);
-    push @sql_statements, {SQL => $sql++, 'place_holders' => \@ph};
+    push @sql_statements, { 
+        Description => {SQL => $sql++, 'place holders' => \@ph}
+    };
 }
 
 # note explain \@sql_statements;
@@ -30,12 +32,15 @@ my $h1 = Machine::DB::Handler->new(
 isa_ok $h1, 'Machine::DB::Handler';
 
 
+# Delete descriptions from sql statements
+my @sql = map { $_->{Description} } @sql_statements;
+
 # Accessors
 is $h->name, 'Testing handlers',
     'Name is correct';
 is $h->topic_template, ':this/is/:a/:test',
     'Topic template is correct';
-is_deeply $h->db_interactions, \@sql_statements,
+is_deeply $h->db_interactions, \@sql,
     'db_interactions are correct when given as array ref';
 is_deeply $h1->db_interactions, [{
         SQL => 'sql statement',
