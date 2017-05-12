@@ -7,9 +7,7 @@ my $sql = 'S1';
 my $i   = 1;
 my @sql_statements;
 foreach (1..3) {
-    my %h = (SQL => $sql);
     my @ph = map { $i++ } (1..3);
-    $h{'place holders'} = \@ph;
     push @sql_statements, {SQL => $sql++, 'place_holders' => \@ph};
 }
 

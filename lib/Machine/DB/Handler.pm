@@ -4,8 +4,8 @@ use Machine::DB::Responder;
 use JSON;
 use Sereal::Encoder;
 use Sereal::Decoder;
+use AnyEvent::Log;
 use Moo;
-use Carp;
 use namespace::clean;
 use strict;
 use warnings;
@@ -20,8 +20,9 @@ sub BUILDARGS {
     
     # Build an array ref of database interactions
 	if (exists $args->{SQL}) {
-        croak "Topic $args->{topic} needs place holders for $args->{SQL}"
-            unless exists $args->{'place holders'};
+        AE::log('fatal',
+            "Topic $args->{topic} needs place holders for $args->{SQL}"
+        ) unless exists $args->{'place holders'};
         my %inter;
         @inter{$_} = delete $args->{$_} foreach 'SQL', 'place holders';
         $args->{'SQL statements'} = [ \%inter ];
@@ -60,8 +61,12 @@ has explode_fields => (
     is        => 'ro',
     init_arg  => 'explode',
     isa       => sub { 
-        croak 'The fields to explode must be given in an array reference'
-            unless ref $_[0] eq 'ARRAY';
+        AE::log('fatal', 
+            'The fields to explode must be given in an array reference'
+        ) unless ref $_[0] eq 'ARRAY';
+        AE::log('fatal', 
+            'The array reference of fields to explode cannot be empty'
+        ) unless @{$_[0]} > 0;
     },
     predicate => 1,
 );
@@ -70,12 +75,15 @@ has implode_fields => (
     is        => 'ro',
     init_arg  => 'implode all but',
     isa       => sub { 
-        croak 'Implosion definition is not a hash reference'
-            unless ref $_[0] && ref $_[0] eq 'HASH';
-        croak 'Missing destination for imploded fields'
-            unless exists $_[0]->{destination};
-        croak 'Missing list of fields to implode'
-            unless exists $_[0]->{fields} && ref $_[0]->{fields} eq 'ARRAY';
+        AE::log('fatal',
+            'Implosion definition is not a hash reference'
+        ) unless ref $_[0] && ref $_[0] eq 'HASH';
+        AE::log('fatal', 
+            'Missing destination for imploded fields'
+        ) unless exists $_[0]->{destination};
+        AE::log('fatal', 
+            'Missing list of fields to implode'
+        ) unless exists $_[0]->{fields} && ref $_[0]->{fields} eq 'ARRAY';
     },
     predicate => 1,
 );
@@ -92,8 +100,9 @@ has decode_msg_with => (
     init_arg  => 'decode with',
     default   => 'JSON',
     isa       => sub { 
-        croak 'Unknown decoder' 
-            unless ($_[0] eq 'JSON' || $_[0] eq 'Sereal');
+        AE::log('fatal', 
+            "Unknown decoder: $_[0]" 
+        ) unless ($_[0] eq 'JSON' || $_[0] eq 'Sereal');
     },
 );
 
@@ -102,8 +111,9 @@ has encode_msg_with => (
     init_arg  => 'encode with',
     default   => 'JSON',
     isa       => sub { 
-        croak 'Unknown encoder' 
-            unless ($_[0] eq 'JSON' || $_[0] eq 'Sereal');
+        AE::log('fatal', 
+            "Unknown encoder: $_[0]" 
+        ) unless ($_[0] eq 'JSON' || $_[0] eq 'Sereal');
     },
 );
 
@@ -183,8 +193,12 @@ sub decode_msg {
     return $topic_hr if not $msg;
 	my $data;
 	$data = $obj->msg_decoder->($msg);
-	croak "Message could not be decoded or it is not a hash reference"
-		unless defined $data && ref $data eq 'HASH';
+	unless (defined $data && ref $data eq 'HASH') {
+        AE::log('error', 
+            "Message could not be decoded or it is not a hash reference"
+        );
+        return undef;
+    }
 	my %r = (%$data, %$topic_hr);
     return \%r;
 }
@@ -205,8 +219,6 @@ sub subscription_topic {
 sub encode_msg {
     my ($self, $msg) = @_;
     return '' unless defined $msg;
-    croak "MQTT message must be a hash reference"
-        unless ref $msg eq 'HASH';
     return $self->msg_encoder->($msg);
 }
 
@@ -216,8 +228,9 @@ sub explode {
     foreach my $field (@{$self->explode_fields}) {
         my $value    = delete $data->{$field};
         my $decoded  = $sereal_decoder->decode($value);
-        croak "Exploded object could not be decoded or it is not a hash reference"
-            unless defined $decoded && ref $decoded eq 'HASH';
+        AE::log('fatal', 
+            "Exploded object could not be decoded or it is not a hash reference"
+        ) unless defined $decoded && ref $decoded eq 'HASH';
         my %combined = (%$data, %$decoded);
         $data        = \%combined; 
     }
@@ -279,6 +292,7 @@ sub subscription_callback {
         
         # Builds hash ref with the topic and body of the message
 		my $data = $self->parse_msg($topic, $msg);
+        return unless $data;
         
         # Call pre-processing callbacks
         $self->preprocess($dbh, $data);

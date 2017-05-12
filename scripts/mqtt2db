@@ -28,7 +28,7 @@ use v5.10;
 
 our $VERSION = '0.01';
 
-log_always("Starting");
+AE::log 'info' => "Starting";
 
 # Processing of command line options
 my $verbose;
@@ -44,7 +44,7 @@ GetOptions(
 
 pod2usage(-verbose => 2) if $help;
 
-log_notice("Working directory: " . `pwd`);
+AE::log 'info' => "Working directory: " . `pwd`;
 
 # Processing of the configuration file
 my $config_file = shift;
@@ -56,7 +56,7 @@ pod2usage(
 
 my $config;
 try { 
-    log_notice("Loading configuration file at $config_file");
+    AE::log 'info' => "Loading configuration file from $config_file";
     $config = LoadFile($config_file);
 }
 catch {
@@ -72,10 +72,11 @@ catch {
 my $mqtt;
 try {
     my $c = $config->{Broker};
-    die "Broker section is missing from the configuration file"
-        unless defined $c;
+    AE::log(
+        fatal => "Broker section is missing from the configuration file"
+    ) unless defined $c;
     $mqtt = AnyEvent::MQTT->new(%$c);
-    log_notice('Connecting to broker at <' . $c->{host} .'>');
+    AE::log 'info' => 'Connecting to broker at <' . $c->{host} .'>';
 }
 catch {
     pod2usage(
@@ -93,14 +94,15 @@ try {
     my $drv    = $c->{driver}     || die "Database driver is missing";
     my $dbname = $c->{DBname}     || die "DBname is missing";
     my $acomm  = $c->{autoCommit} // 1;
-    log_notice("Connecting to <$drv> database <$dbname>");
+    AE::log 'info' => "Connecting to <$drv> database <$dbname>";
     
     $dbh = DBI->connect(
         "dbi:$drv:dbname=$dbname", 
         $c->{user}, 
         $c->{password},
         { AutoCommit => $acomm, RaiseError => 1 })
-        || die "Could not connect to the database: $DBI::errstr";
+        || AE::log 'fatal' 
+            =>  "Could not connect to the database: $DBI::errstr";
 }
 catch {
     pod2usage(
@@ -116,7 +118,7 @@ foreach my $conv (@{$config->{Topics}}) {
 	my ($nam) = keys %$conv;
     my ($def) = values %$conv;
 #    say Dumper $def; 
-    log_notice("Setting up conversation <$nam>");
+    AE::log 'info' => "Setting up conversation <$nam>";
     
     try {
 		# Load the class that should process the current topic
@@ -128,17 +130,18 @@ foreach my $conv (@{$config->{Topics}}) {
             $class = 'Machine::DB::Handler';
         }
 
-		log_notice("Loading $class for conversation <$nam>");
+		AE::log 'info' => "Loading $class for conversation <$nam>";
 		eval "require $class";
-		die "Error loading class <$class>: $@"
+		AE::log 'fatal' =>  "Error loading class <$class>: $@"
 			if $@;
 
-        log_notice("Instantiating handler for <$nam>"); 
+        AE::log 'info' => "Instantiating handler for <$nam>"; 
 		$def->{'topic name'} = $nam;
         my $handler = $class->new($def);
 		
-		log_notice("Subscribing to conversation <$nam> with topic <"
-            . $handler->subscription_topic . ">");
+		AE::log 'info' 
+            =>  "Subscribing to conversation <$nam> with topic <"
+                . $handler->subscription_topic . ">";
 		my $s = $mqtt->subscribe(
 			topic    => $handler->subscription_topic,
 			callback => $handler->subscription_callback($dbh, $mqtt)
@@ -146,8 +149,7 @@ foreach my $conv (@{$config->{Topics}}) {
 		$s->recv;
 	}
 	catch {
-		log_error("Failed setting up conversation <$nam>: $_")
-			&& exit 1;
+		AE::log 'fatal' => "Failed setting up conversation <$nam>: $_";
 	};
 }
 
@@ -172,35 +174,14 @@ my $w = AnyEvent->signal(
 );
 
 # Enter the async loop. Disconnect from the database before exiting.
-log_notice("Entering asynchronous loop");
+AE::log 'info' => "Entering asynchronous loop";
 $cv->recv;
 
-log_notice("Disconnecting from the database");
+AE::log 'info' => "Disconnecting from the database";
 $dbh->disconnect;
 $mqtt->cleanup;
-log_always("Exiting");
+AE::log 'info' => "Exiting";
 exit 0;
-
-sub log_always {
-	my $msg = shift;
-	my $ts = strftime("%Y-%m-%d %H:%M:%S", localtime());
-	say "$ts - $0 - $msg";
-}
-
-sub log_notice {
-	my $msg = shift;
-	return unless $verbose;
-	my $ts = strftime("%Y-%m-%d %H:%M:%S", localtime());
-	say "$ts - $0 - $msg";
-}
-
-sub log_error {
-	my $msg = shift;
-	my $ts = strftime("%Y-%m-%d %H:%M:%S", localtime());
-	my $errstr =  "$ts - $0 - ERROR: $msg";
-	say STDERR $errstr;
-	return $errstr;
-}
 
 =pod
 
