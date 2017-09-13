@@ -1,16 +1,5 @@
 #! /usr/bin/env perl
 
-=for comment
-
-Trabajo pendiente: 
-
-* Utilisar AE::log para Handler.
-* Poner los serializadores dentro de Handler
-* Hacer un nuevo esquema de BD especial para probar, mas simple
-* Ver que pasa con los valores nulos en Machine::Interface
-
-=cut
-
 use lib 'lib';
 use YAML qw(LoadFile);
 use Try::Tiny;
@@ -20,6 +9,7 @@ use Pod::Usage;
 use EV;
 use AnyEvent::MQTT;
 use AnyEvent;
+use AnyEvent::Log;
 use DBI;
 use POSIX qw(strftime);
 use strict;
@@ -27,8 +17,6 @@ use warnings;
 use v5.10;
 
 our $VERSION = '0.01';
-
-AE::log 'info' => "Starting";
 
 # Processing of command line options
 my $verbose;
@@ -44,15 +32,21 @@ GetOptions(
 
 pod2usage(-verbose => 2) if $help;
 
+$AnyEvent::Log::FILTER->level("info") if $verbose;
+
 AE::log 'info' => "Working directory: " . `pwd`;
 
 # Processing of the configuration file
 my $config_file = shift;
-pod2usage(
-    -message => log_error("A configuration file is required"),
-    -verbose => 1, 
-    -exitval => 1)
-    unless defined $config_file && -r $config_file;
+unless (defined $config_file && -r $config_file) {
+    pod2usage(
+        -message => "A configuration file is required",
+        -verbose => 1, 
+        -exitval => 1,
+    );
+    AE::log 'error'
+        => 'A configuration file is either missing or cannot be read';
+}
 
 my $config;
 try { 
@@ -61,11 +55,12 @@ try {
 }
 catch {
     pod2usage(
-        -message  => log_error("Parsing of the configuration file failed: $_"),
+        -message  => "Parsing of the configuration file failed: $_",
         -exitval  => 1,
         -verbose  => 99,
         -sections => "CONFIGURATION FILE",
-    )
+    );
+    AE::log error => "Parsing of the configuration file failed: $_";
 };
 
 # Connect to the MQTT broker
@@ -80,11 +75,12 @@ try {
 }
 catch {
     pod2usage(
-        -message  => log_error("Connection to the MQTT broker failed: $_"),
+        -message  => "Connection to the MQTT broker failed: $_",
         -exitval  => 1,
         -verbose  => 99,
         -sections => "CONFIGURATION FILE/MQTT broker",
-    )
+    );
+    AE::log error => "Connection to the MQTT broker failed: $_";
 };
 
 # Connect to the database
@@ -106,18 +102,19 @@ try {
 }
 catch {
     pod2usage(
-        -message  => log_error("Connection to the database failed: $_"),
+        -message  => "Connection to the database failed: $_",
         -exitval  => 1,
         -verbose  => 99,
         -sections => "CONFIGURATION FILE/Database",
-    )
+    );
+    AE::log error => "Connection to the database failed: $_";
 };
 
 # Process list of topics
 foreach my $conv (@{$config->{Topics}}) {
 	my ($nam) = keys %$conv;
     my ($def) = values %$conv;
-#    say Dumper $def; 
+
     AE::log 'info' => "Setting up conversation <$nam>";
     
     try {

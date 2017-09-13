@@ -1,6 +1,6 @@
-Revision history for Perl extension Machine-DB
+Revision history for Perl extension Machine::DB.
 
-{{$NEXT}}
-
-    - original version
+0.01  Wed Sep 13 22:12:09 2017
+	- original version; created by h2xs 1.23 with options
+		-X Machine::DB
 
