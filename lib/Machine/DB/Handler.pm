@@ -255,10 +255,11 @@ sub explode {
     my ($self, $data) = @_;
     foreach my $field (@{$self->explode_fields}) {
         my $value    = delete $data->{$field};
-        my $decoded  = $sereal_decoder->decode($value);
-        AE::log('fatal', 
+        my $decoded;
+        eval { $decoded = $sereal_decoder->decode($value) };
+        AE::log('fatal',
             "Exploded object could not be decoded or it is not a hash reference"
-        ) unless defined $decoded && ref $decoded eq 'HASH';
+        ) if $@ || !defined $decoded || ref($decoded) ne 'HASH';
         my %combined = (%$data, %$decoded);
         $data        = \%combined; 
     }
