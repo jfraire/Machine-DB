@@ -19,6 +19,7 @@ use v5.10;
 our $VERSION = '0.01';
 
 # Processing of command line options
+my $id;
 my $config_file = '';
 my $verbose;
 my $debug;
@@ -26,6 +27,7 @@ my $help;
 
 Getopt::Long::Configure('bundling');
 GetOptions(
+    'i|id:s'     => \$id,
     'c|config=s' => \$config_file,
     'v|verbose'  => \$verbose,
     'd|debug'    => \$debug,
@@ -45,7 +47,7 @@ my $mqtt;
 my $dbh;
 my $commit_timer;
 my $config;
-my @callbacks;
+my @condvars;
 
 # Check for config file
 unless (defined $config_file && -r $config_file) {
@@ -80,6 +82,14 @@ $cv->recv;
 
 AE::log 'info' => "Disconnecting from the database";
 $dbh->disconnect;
+
+my $s = $mqtt->publish(
+    topic   => "admin/disconnected/$id",
+    message => '',
+    retain  => 1,
+);
+$s->recv;
+
 $mqtt->cleanup;
 AE::log 'info' => "Exiting";
 exit 0;
@@ -90,7 +100,7 @@ sub reload_config {
     undef $config;
     $dbh->disconnect if defined $dbh && ref $dbh;
     undef $commit_timer;
-    @callbacks = ();
+    @condvars = ();
      
     # Read the config file
     try { 
@@ -106,6 +116,9 @@ sub reload_config {
         AE::log fatal => "Failed parsing the configuration file: $_";
     };
 
+    # Set id
+    $id //= $config->{Broker}{client_id} || 'mqtt2db';
+    
     # Connect to the MQTT broker
     try {
         my $c = $config->{Broker};
@@ -114,7 +127,10 @@ sub reload_config {
         ) unless defined $c;
 
         $mqtt = AnyEvent::MQTT->new(
-            timeout => 10,
+            timeout      => 10,
+            will_topic   => "admin/disconnected/$id",
+            will_message => '',
+            will_retain  => 1,
             %$c,
             on_error => sub {
                 my ($fatal, $msg) = @_;
@@ -193,7 +209,7 @@ sub reload_config {
             $s->cb( sub {
                 AE::log info => "Subscribed to <$nam>";
             });
-            push @callbacks, $s;
+            push @condvars, $s;
         }
         catch {
             AE::log fatal => "Failed setting up conversation <$nam>: $_";
@@ -218,6 +234,11 @@ sub reload_config {
             }
         );
     }
+
+    push @condvars, $mqtt->publish(
+        topic   => "admin/connected/$id",
+        message => ''
+    );
 }
 
 =pod
@@ -232,6 +253,7 @@ mqtt2bd - Simple database interaction through MQTT messages
  
  Options:
 
+ i, id          Client identification string
  c, config      Configuration file
  v, verbose     Turn on informational messages
  d, debug       Turn on debugging messages
