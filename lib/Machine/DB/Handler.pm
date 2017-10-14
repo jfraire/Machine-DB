@@ -262,6 +262,7 @@ sub explode {
         ) if $@ || !defined $decoded || ref($decoded) ne 'HASH';
         my %combined = (%$data, %$decoded);
         $data        = \%combined; 
+        AE::log debug => "Exploded $field: " . encode_json($decoded);
     }
     return $data;
 }
@@ -279,6 +280,7 @@ sub implode {
     my $dest = $self->implode_fields->{destination};
     my $enc  = $sereal_encoder->encode($data);
     $imploded{$dest} = $enc;
+    AE::log debug => "Imploded $dest: " . encode_json($data);
     return \%imploded;
 }
 
@@ -318,6 +320,8 @@ sub subscription_callback {
     
 	my $cb = sub {
 		my ($topic, $msg) = @_;
+
+        AE::log debug => "Processing incoming message with topic $topic";
         
         # Builds hash ref with the topic and body of the message
 		my $data = $self->parse_msg($topic, $msg);
@@ -327,7 +331,7 @@ sub subscription_callback {
         $self->preprocess($dbh, $data);
         
         # Implode data
-        $self->implode($data) if $self->has_implode_fields;
+        $data = $self->implode($data) if $self->has_implode_fields;
         
         # Execute the list of SQL statements
         foreach my $inter (@{$self->db_interactions}) {
@@ -335,6 +339,7 @@ sub subscription_callback {
             # Get the values to bind to the sql statement
             my @bind = map { $data->{$_} } @{$inter->{'place holders'}};
             $inter->{sth}->execute(@bind);
+            AE::log error => $DBI::errstr if $DBI::errstr;
             
             if ($inter->{SQL} =~ /^\s*SELECT/si) {
                 # Fetch results: Only one record is allowed

@@ -9,6 +9,7 @@ use Pod::Usage;
 use EV;
 use AnyEvent::MQTT;
 use AnyEvent;
+use AnyEvent::Log;
 use DBI;
 use POSIX qw(strftime);
 use strict;
@@ -17,6 +18,7 @@ use v5.10;
 
 our $VERSION = '0.01';
 
+$AnyEvent::Log::FILTER->level('debug');
 AE::log 'info' => "Starting";
 
 # Processing of command line options
