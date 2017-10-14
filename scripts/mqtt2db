@@ -112,8 +112,16 @@ sub reload_config {
         AE::log(
             fatal => "Broker section is missing from the configuration file"
         ) unless defined $c;
-        ##### Agregar subrutina para problemas de conexion
-        $mqtt = AnyEvent::MQTT->new(%$c);
+
+        $mqtt = AnyEvent::MQTT->new(
+            timeout => 10,
+            %$c,
+            on_error => sub {
+                my ($fatal, $msg) = @_;
+                AE::log fatal => $msg if $fatal;
+                AE::log error => $msg;
+            }
+        );
         AE::log 'info' => 'Connecting to broker at <' . $c->{host} .'>';
     }
     catch {
