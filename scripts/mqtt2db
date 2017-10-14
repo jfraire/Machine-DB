@@ -18,150 +18,60 @@ use v5.10;
 
 our $VERSION = '0.01';
 
-$AnyEvent::Log::FILTER->level('debug');
-AE::log 'info' => "Starting";
-
 # Processing of command line options
+my $config_file = '';
 my $verbose;
+my $debug;
 my $help;
-
 
 Getopt::Long::Configure('bundling');
 GetOptions(
+    'c|config=s' => \$config_file,
     'v|verbose'  => \$verbose,
-    'V|version'  => sub { die "$0 - $VERSION\n" },
+    'd|debug'    => \$debug,
+    'V|version'  => sub { die "Vesion: $VERSION\n"; },
     'help|?'     => \$help,
 ) or pod2usage(-verbose => 0);
 
+$AnyEvent::Log::FILTER->level('info')  if $verbose;
+$AnyEvent::Log::FILTER->level('debug') if $debug;
+
 pod2usage(-verbose => 2) if $help;
 
-AE::log 'info' => "Working directory: " . `pwd`;
+AE::log 'info'  => "Starting";
+AE::log 'debug' => "Working directory: " . `pwd`;
 
-# Processing of the configuration file
-my $config_file = shift;
-pod2usage(
-    -message => log_error("A configuration file is required"),
-    -verbose => 1, 
-    -exitval => 1)
-    unless defined $config_file && -r $config_file;
-
-my $config;
-try { 
-    AE::log 'info' => "Loading configuration file from $config_file";
-    $config = LoadFile($config_file);
-}
-catch {
-    pod2usage(
-        -message  => log_error("Parsing of the configuration file failed: $_"),
-        -exitval  => 1,
-        -verbose  => 99,
-        -sections => "CONFIGURATION FILE",
-    )
-};
-
-# Connect to the MQTT broker
 my $mqtt;
-try {
-    my $c = $config->{Broker};
-    AE::log(
-        fatal => "Broker section is missing from the configuration file"
-    ) unless defined $c;
-    $mqtt = AnyEvent::MQTT->new(%$c);
-    AE::log 'info' => 'Connecting to broker at <' . $c->{host} .'>';
-}
-catch {
-    pod2usage(
-        -message  => log_error("Connection to the MQTT broker failed: $_"),
-        -exitval  => 1,
-        -verbose  => 99,
-        -sections => "CONFIGURATION FILE/MQTT broker",
-    )
-};
-
-# Connect to the database
 my $dbh;
-try {
-    my $c      = $config->{Database};
-    my $drv    = $c->{driver}     || die "Database driver is missing";
-    my $dbname = $c->{DBname}     || die "DBname is missing";
-    my $acomm  = $c->{autoCommit} // 1;
-    AE::log 'info' => "Connecting to <$drv> database <$dbname>";
-    
-    $dbh = DBI->connect(
-        "dbi:$drv:dbname=$dbname", 
-        $c->{user}, 
-        $c->{password},
-        { AutoCommit => $acomm, RaiseError => 1 })
-        || AE::log 'fatal' 
-            =>  "Could not connect to the database: $DBI::errstr";
-}
-catch {
-    pod2usage(
-        -message  => log_error("Connection to the database failed: $_"),
-        -exitval  => 1,
-        -verbose  => 99,
-        -sections => "CONFIGURATION FILE/Database",
-    )
-};
-
-# Process list of topics
-foreach my $conv (@{$config->{Topics}}) {
-	my ($nam) = keys %$conv;
-    my ($def) = values %$conv;
-#    say Dumper $def; 
-    AE::log 'info' => "Setting up conversation <$nam>";
-    
-    try {
-		# Load the class that should process the current topic
-		my $class;
-        if ($def->{'handler'}) {
-            $class = "Machine::DB::Handler::" . $def->{'handler'};
-        }
-        else {
-            $class = 'Machine::DB::Handler';
-        }
-
-		AE::log 'info' => "Loading $class for conversation <$nam>";
-		eval "require $class";
-		AE::log 'fatal' =>  "Error loading class <$class>: $@"
-			if $@;
-
-        AE::log 'info' => "Instantiating handler for <$nam>"; 
-		$def->{'topic name'} = $nam;
-        my $handler = $class->new($def);
-		
-		AE::log 'info' 
-            =>  "Subscribing to conversation <$nam> with topic <"
-                . $handler->subscription_topic . ">";
-		my $s = $mqtt->subscribe(
-			topic    => $handler->subscription_topic,
-			callback => $handler->subscription_callback($dbh, $mqtt)
-		);
-		$s->recv;
-	}
-	catch {
-		AE::log 'fatal' => "Failed setting up conversation <$nam>: $_";
-	};
-}
-
-# If the database is not in auto-commit mode, commit every
 my $commit_timer;
-if (!$config->{Database}{autoCommit}) {
-	$commit_timer = AnyEvent->timer( 
-        after    => $config->{Database}{'commit every'} || 10,
-		interval => $config->{Database}{'commit every'} || 10,
-		cb       => sub { 
-			$dbh->commit;
-		}
-	);
+my $config;
+my @callbacks;
+
+# Check for config file
+unless (defined $config_file && -r $config_file) {
+    pod2usage(
+        -verbose => 1, 
+        -exitval => "NOEXIT");
+    AE::log fatal => "A configuration file is required";
 }
+
+# Load the configuration file and start working
+reload_config();
 
 my $cv = AnyEvent->condvar;
 
 # Falta agregar tratamiento de senales (stop, restart)
-my $w = AnyEvent->signal(
-    signal => 'HUP',
+my $w1 = AnyEvent->signal(
+    signal => 'TERM',
     cb     => sub { $cv->send }
+);
+
+my $w2 = AnyEvent->signal(
+    signal => 'HUP',
+    cb     => sub {
+        AE::log info => "Reloading configuration file";
+        reload_config();
+    }
 );
 
 # Enter the async loop. Disconnect from the database before exiting.
@@ -174,6 +84,134 @@ $mqtt->cleanup;
 AE::log 'info' => "Exiting";
 exit 0;
 
+sub reload_config {
+    # Clear 
+    $mqtt->cleanup if defined $mqtt && ref $mqtt;
+    undef $config;
+    $dbh->disconnect if defined $dbh && ref $dbh;
+    undef $commit_timer;
+    @callbacks = ();
+     
+    # Read the config file
+    try { 
+        AE::log 'info' => "Loading configuration file from $config_file";
+        $config = LoadFile($config_file);
+    }
+    catch {
+        pod2usage(
+            -exitval  => "NOEXIT",
+            -verbose  => 99,
+            -sections => "CONFIGURATION FILE",
+        );
+        AE::log fatal => "Failed parsing the configuration file: $_";
+    };
+
+    # Connect to the MQTT broker
+    try {
+        my $c = $config->{Broker};
+        AE::log(
+            fatal => "Broker section is missing from the configuration file"
+        ) unless defined $c;
+        ##### Agregar subrutina para problemas de conexion
+        $mqtt = AnyEvent::MQTT->new(%$c);
+        AE::log 'info' => 'Connecting to broker at <' . $c->{host} .'>';
+    }
+    catch {
+        pod2usage(
+            -exitval  => "NOEXIT",
+            -verbose  => 99,
+            -sections => "CONFIGURATION FILE/MQTT broker",
+        );
+        AE::log fatal => "Connection to the MQTT broker failed: $_";
+    };
+
+    # Connect to the database
+    try {
+        my $c      = $config->{Database};
+        my $drv    = $c->{driver}     || die "Database driver is missing";
+        my $dbname = $c->{DBname}     || die "DBname is missing";
+        my $acomm  = $c->{autoCommit} // 1;
+        AE::log 'info' => "Connecting to <$drv> database <$dbname>";
+        
+        $dbh = DBI->connect(
+            "dbi:$drv:dbname=$dbname", 
+            $c->{user}, 
+            $c->{password},
+            { AutoCommit => $acomm, RaiseError => 1 })
+            || die  "Could not connect to the database: $DBI::errstr";
+    }
+    catch {
+        pod2usage(
+            -exitval  => "NOEXIT",
+            -verbose  => 99,
+            -sections => "CONFIGURATION FILE/Database",
+        );
+        AE::log fatal => "Connection to the database failed: $_";
+    };
+
+    # Process list of topics
+    foreach my $conv (@{$config->{Topics}}) {
+        my ($nam) = keys %$conv;
+        my ($def) = values %$conv;
+
+        AE::log 'info' => "Setting up conversation <$nam>";
+        
+        try {
+            # Load the class that should process the current topic
+            my $class;
+            if ($def->{'handler'}) {
+                $class = "Machine::DB::Handler::" . $def->{'handler'};
+            }
+            else {
+                $class = 'Machine::DB::Handler';
+            }
+
+            AE::log 'debug' => "Loading $class for conversation <$nam>";
+            eval "require $class";
+            AE::log 'fatal' =>  "Error loading class <$class>: $@"
+                if $@;
+
+            AE::log 'debug' => "Instantiating handler for <$nam>"; 
+            $def->{'topic name'} = $nam;
+            my $handler = $class->new($def);
+            
+            AE::log 'info' 
+                =>  "Subscribing to conversation <$nam> with topic <"
+                    . $handler->subscription_topic . ">";
+            my $s = $mqtt->subscribe(
+                topic    => $handler->subscription_topic,
+                callback => $handler->subscription_callback($dbh, $mqtt)
+            );
+            $s->cb( sub {
+                AE::log info => "Subscribed to <$nam>";
+            });
+            push @callbacks, $s;
+        }
+        catch {
+            AE::log fatal => "Failed setting up conversation <$nam>: $_";
+        };
+    }
+
+    # If the database is not in auto-commit mode, commit every
+    if (!$config->{Database}{autoCommit}) {
+        my $period = $config->{Database}{'commit every'} || 60;
+        AE::log info => "Database changes will commit every $period seconds";
+        $commit_timer = AnyEvent->timer( 
+            after    => $period,
+            interval => $period,
+            cb       => sub { 
+                try {
+                    $dbh->commit;
+                }
+                catch {
+                    AE::log fatal =>
+                        "Failed commiting changes to the database: $_";
+                };
+            }
+        );
+    }
+}
+
 =pod
 
 =head1 NAME
@@ -182,11 +220,13 @@ mqtt2bd - Simple database interaction through MQTT messages
 
 =head1 SYNOPSIS
 
- mqtt2db [options] config_file.yml
+ mqtt2db [options] --config config_file.yml
  
  Options:
- 
- v, verbose     Turn on notice messages
+
+ c, config      Configuration file
+ v, verbose     Turn on informational messages
+ d, debug       Turn on debugging messages
  V, version     Show program version and exit
  ?, help        Show the documentation and exit
  
@@ -200,7 +240,7 @@ The program parses incoming messages (both the topic and the body of the message
 
 Please note that this program is able to retrieve a single row of data from the database.
 
-=head1 CONFIGURATION
+=head1 CONFIGURATION FILE
 
 The configuration file is in YAML. There is an example configuration file in this distribution. You can find the YAML specification here: L<http://yaml.org/spec/1.0/>.
 
