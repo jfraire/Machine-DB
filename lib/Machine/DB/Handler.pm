@@ -256,7 +256,8 @@ sub explode {
     foreach my $field (@{$self->explode_fields}) {
         my $value    = delete $data->{$field};
         my $decoded;
-        eval { $decoded = $sereal_decoder->decode($value) };
+#        eval { $decoded = $sereal_decoder->decode($value) };
+        eval { $decoded = decode_json($value) };
         AE::log('fatal',
             "Exploded object could not be decoded or it is not a hash reference"
         ) if $@ || !defined $decoded || ref($decoded) ne 'HASH';
@@ -278,7 +279,8 @@ sub implode {
     }
 
     my $dest = $self->implode_fields->{destination};
-    my $enc  = $sereal_encoder->encode($data);
+#    my $enc  = $sereal_encoder->encode($data);
+    my $enc  = encode_json($data);
     $imploded{$dest} = $enc;
     AE::log debug => "Imploded $dest: " . encode_json($data);
     return \%imploded;
