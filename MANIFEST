@@ -6,10 +6,8 @@ lib/Machine/DB/Responder.pm
 LICENSE
 Makefile.PL
 MANIFEST
-README
+README.pod
 scripts/mqtt2db
-SQL/insert_records.sql
-SQL/schema.sql
 t/app_test.db
 t/app_test_basic.t
 t/callback_test.db
