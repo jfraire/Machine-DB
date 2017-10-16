@@ -3,7 +3,6 @@
 use lib 'lib';
 use YAML qw(LoadFile);
 use Try::Tiny;
-use Data::Dumper;
 use Getopt::Long;
 use Pod::Usage;
 use EV;
@@ -12,6 +11,7 @@ use AnyEvent;
 use AnyEvent::Log;
 use DBI;
 use POSIX qw(strftime);
+use Machine::DB::Responder;
 use strict;
 use warnings;
 use v5.10;
@@ -173,9 +173,28 @@ sub reload_config {
         AE::log fatal => "Connection to the database failed: $_";
     };
 
+    # Process list of response objects
+    my %responses;
+    foreach my $resp (@{$config->{Responses}}) {
+        my ($nam) = keys   %$resp;
+        my ($val) = values %$resp;
+        
+        AE::log 'info' => "Setting up response <$nam>";
+
+        try {
+            # Create response objects
+            $val->{name} = $nam;
+            my $r = Machine::DB::Responder->new(%$val);
+            $responses{$nam} = $r;
+        }
+        catch {
+            AE::log fatal => "Unable to create response <$nam>: $_\n";
+        };
+    }
+
     # Process list of topics
     foreach my $conv (@{$config->{Topics}}) {
-        my ($nam) = keys %$conv;
+        my ($nam) = keys   %$conv;
         my ($def) = values %$conv;
 
         AE::log 'info' => "Setting up conversation <$nam>";
@@ -197,6 +216,23 @@ sub reload_config {
 
             AE::log 'debug' => "Instantiating handler for <$nam>";
             $def->{'topic name'} = $nam;
+
+            # Create or load the response object
+            if (exists $def->{response} && ref $def->{response}) {
+                # Create a new response object
+                AE::log debug => "Creating response for <$nam>";
+                my $r = Machine::DB::Responder->new($def->{response});
+                AE::log fatal => "Failed creating the response for $nam"
+                    unless $r;
+                $def->{response} = $r;
+            }
+            elsif (exists $def->{response}) {
+                # Fetch the response object
+                AE::log fatal => "Response <" . $def->{response}
+                    . "> does not exist"
+                    unless exists $responses{$def->{response}};
+                $def->{response} = $responses{$def->{response}};
+            }
             my $handler = $class->new($def);
 
             AE::log 'info'

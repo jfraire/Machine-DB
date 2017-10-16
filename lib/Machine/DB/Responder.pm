@@ -8,6 +8,13 @@ use namespace::clean;
 use strict;
 use warnings;
 
+my $i = 1;
+
+has name => (
+    is       => 'ro',
+    default  => sub { sprintf "Response-%03d", $i++ }
+);
+
 has topic_template => (
 	is       => 'ro',
 	required => 1,

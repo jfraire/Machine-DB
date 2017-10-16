@@ -1,4 +1,4 @@
-use Test::More tests => 5;
+use Test::More tests => 6;
 use strict;
 use warnings;
 
@@ -8,6 +8,9 @@ my $r = Machine::DB::Responder->new(
     topic  => 'this/is/:a/:test',
     fields => [qw(hola crayola)],
 );
+
+is $r->name, 'Response-001',
+    'The default response name is OK';
 
 is $r->topic_template, 'this/is/:a/:test',
     'Topic template is read correctly';

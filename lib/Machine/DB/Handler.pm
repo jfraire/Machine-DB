@@ -29,13 +29,6 @@ sub BUILDARGS {
         $args->{'SQL statements'} = [ \%inter ];
 	}
     
-    # Build a responder object
-    if (exists $args->{response}) {
-        $args->{response} =  Machine::DB::Responder->new(
-            $args->{response}
-        );
-    }        
-    
     return $args;
 }
 
@@ -43,7 +36,6 @@ has name => (
 	is       => 'ro',
 	required => 1,
     init_arg => 'topic name',
-    
 );
 
 has topic_template => (
@@ -107,6 +99,16 @@ has responder => (
     handles   => [qw(response_topic response_message explode_fields
         has_fields_to_explode)],
     init_arg  => 'response',
+    isa       => sub {
+        AE::log fatal => 'The responder was not instantiated'
+            unless ref $_[0] eq 'Machine::DB::Responder';
+    },
+    coerce    => sub {
+        my $r = ref($_[0]) ne 'Machine::DB::Responder'
+            ? Machine::DB::Responder->new($_[0])
+            : $_[0];
+        return $r;
+    },
     predicate => 1,
 );
 
