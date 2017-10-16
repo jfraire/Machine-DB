@@ -71,14 +71,15 @@ sub response_message {
 
 sub explode_fields {
     my ($self, $data) = @_;
-    AE::log fatal => 'There are no fields to explode'
+    AE::log fatal => "There are no fields to explode in response " . $self->name
         unless $self->has_fields_to_explode;
     foreach my $field (@{$self->fields_to_explode}) {
         my $value = delete $data->{$field};
         my $decoded;
         eval { $decoded = decode_json($value) };
         AE::log('fatal',
-            "Exploded object could not be decoded or it is not a hash reference"
+            "Exploded object could not be decoded or it is not a hash "
+            . "reference in response " . $self->name
         ) if $@ || !defined $decoded || ref($decoded) ne 'HASH';
         my %combined = (%$data, %$decoded);
         $data        = \%combined; 

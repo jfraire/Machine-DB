@@ -456,7 +456,7 @@ Fields that have been imploded on arrival need to be exploded when going out. A 
     - machine_id
  response:
     topic: ":area/:type/:machine_id/parameters/set"
-     explode:
+    explode:
         - current_params
     fields:
         - stops_position
@@ -470,6 +470,44 @@ The above example fetches the single field current_params from the database, and
 
 Exploded database fields need to be serialized using JSON.
 
+=head2 Responses
+
+In case different topics result in the same response, you can define responses independently in their own section. This way, you can simply name the responses:
+
+ Responses:
+    - Send parameters:
+        topic: ":area/:type/:machine_id/parameters/set"
+        explode:
+            - current_params
+        fields:
+            - stops_position
+            - brush_boolean
+            - temp_doser1_sp
+            - temp_doser2_sp
+            - filling_height
+            - filling_bilayer_height
+ Topics:
+    Get current parameters:
+         topic: ":area/:type/:machine_id/parameters/get"
+         SQL: >
+            SELECT current_params
+            FROM machine_state
+            WHERE machine_id = ?
+         place holders:
+            - machine_id
+         response: Send parameters
+
+    Get standard parameters:
+         topic: ":area/:type/:machine_id/std_parameters/get"
+         SQL: >
+            SELECT parameters
+            FROM machine_parameters
+            WHERE machine_type = ? AND part_number = ?
+         place holders:
+            - machine_id
+            - part_number
+         response: Send parameters
+ 
 =head1 LICENSE
 
 =cut
