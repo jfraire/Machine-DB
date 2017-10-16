@@ -28,7 +28,7 @@ $dbh->disconnect;
 # then tests the contents of the DB.
 my $pid = fork;
 die "Could not fork: $!" unless defined $pid;
-exec 'scripts/mqtt2db', 't/conf/app_basic.yaml'
+exec 'scripts/mqtt2db', '-c', 't/conf/app_basic.yaml'
     if $pid == 0;
 
 # We're the parent. Set a timer to shut down mqtt2db

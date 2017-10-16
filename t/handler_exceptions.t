@@ -136,7 +136,11 @@ YAML
             'topic'          => ':this/is/:a/:test',
             'SQL'            => 'sql statement',
             'place holders'  => [1,2,3],
-            'explode'        => {qw(this test)},
+            'response'       => {
+                topic        => 'toopic',
+                fields       => [qw(these are response fields)],
+                explode      => {qw(this test)},
+            },
         ) };
     }
     qr(explode must be given in an array reference),
@@ -150,7 +154,11 @@ YAML
             'topic'          => ':this/is/:a/:test',
             'SQL'            => 'sql statement',
             'place holders'  => [1,2,3],
-            'explode'        => [],
+            'response'       => {
+                topic        => 'toopic',
+                fields       => [qw(these are response fields)],
+                explode      => [],
+            },
         ) };
     }
     qr(cannot be empty),

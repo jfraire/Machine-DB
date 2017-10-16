@@ -1,7 +1,6 @@
 use Test::More tests => 2;
 use Machine::DB::Handler;
 use JSON;
-use Sereal::Encoder;
 use strict;
 use warnings;
 
@@ -22,10 +21,8 @@ my $expected = {
     pears   => 5,
 };
 
-my $encoder = Sereal::Encoder->new;
-
-$data->{this} = $encoder->encode($data->{this});
-$data->{test} = $encoder->encode($data->{test});
+$data->{this} = encode_json($data->{this});
+$data->{test} = encode_json($data->{test});
 
 my $h = Machine::DB::Handler->new(
     'topic name'     => 'Testing handlers',
@@ -33,12 +30,17 @@ my $h = Machine::DB::Handler->new(
     'SQL'            => 'sql statement',
     'place holders'  => [1,2,3],
     'explode'        => [qw(this test)],
+    'response'       => {
+        topic  => 'toopic',
+        fields => [qw(fields go here)],
+        explode => [qw(this test)],
+    },
 );
 
-ok $h->has_explode_fields,
+ok $h->has_fields_to_explode,
     'Handler has explode fields';
 
-$data = $h->explode($data);
+$data = $h->explode_fields($data);
 is_deeply $data, $expected,
     'Fields were exploded correctly';
 

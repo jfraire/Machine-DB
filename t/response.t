@@ -1,4 +1,4 @@
-use Test::More tests => 4;
+use Test::More tests => 5;
 use strict;
 use warnings;
 
@@ -25,5 +25,15 @@ is $r->response_topic($data), 'this/is/1/2',
 my $msg = $r->response_message($data);
 is_deeply $msg, {hola => 3, crayola => 4},
     'Response message is built correctly';
+
+{
+    eval {
+        my $r = Machine::DB::Responder->new(
+            toopic  => 'this/is/:a/:test',
+            fields => [qw(hola crayola)],
+        );
+    };
+    like $@, qr(Missing .*? topic), 'Response topic is required';
+}
 
 done_testing();

@@ -85,20 +85,6 @@ has db_interactions => (
     },
 );
 
-has explode_fields => (
-    is        => 'ro',
-    init_arg  => 'explode',
-    isa       => sub { 
-        AE::log('fatal', 
-            'The fields to explode must be given in an array reference'
-        ) unless ref $_[0] eq 'ARRAY';
-        AE::log('fatal', 
-            'The array reference of fields to explode cannot be empty'
-        ) unless @{$_[0]} > 0;
-    },
-    predicate => 1,
-);
-
 has implode_fields => (
     is        => 'ro',
     init_arg  => 'implode all but',
@@ -118,7 +104,8 @@ has implode_fields => (
 
 has responder => (
     is        => 'ro',
-    handles   => [qw(response_topic response_message)],
+    handles   => [qw(response_topic response_message explode_fields
+        has_fields_to_explode)],
     init_arg  => 'response',
     predicate => 1,
 );
@@ -250,24 +237,6 @@ sub encode_msg {
     return $self->msg_encoder->($msg);
 }
 
-# Returns a new hash reference with the exploded field values
-sub explode {
-    my ($self, $data) = @_;
-    foreach my $field (@{$self->explode_fields}) {
-        my $value    = delete $data->{$field};
-        my $decoded;
-#        eval { $decoded = $sereal_decoder->decode($value) };
-        eval { $decoded = decode_json($value) };
-        AE::log('fatal',
-            "Exploded object could not be decoded or it is not a hash reference"
-        ) if $@ || !defined $decoded || ref($decoded) ne 'HASH';
-        my %combined = (%$data, %$decoded);
-        $data        = \%combined; 
-        AE::log debug => "Exploded $field: " . encode_json($decoded);
-    }
-    return $data;
-}
-
 # Builds a hash with the fields to implode, encodes it, and saves it
 # in within a new key of the $data hash ref
 sub implode {
@@ -361,7 +330,8 @@ sub subscription_callback {
         
         # Build the response
         if ($self->has_responder) {
-            $data = $self->explode($data) if $self->has_explode_fields;
+            $data = $self->explode_fields($data)
+                if $self->has_fields_to_explode;
             my $rtopic = $self->response_topic($data);
             my $rmsg   = $self->response_message($data);
             $rmsg      = $self->encode_msg($rmsg);

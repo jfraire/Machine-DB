@@ -1,6 +1,6 @@
 use Test::More tests => 4;
 use Machine::DB::Handler;
-use Sereal::Decoder;
+use JSON;
 use strict;
 use warnings;
 
@@ -32,8 +32,7 @@ ok exists $imploded->{hola},
 ok not(ref($imploded->{hola})),
     'The destination field does not contain a reference';
 
-my $decoder = Sereal::Decoder->new;
-$imploded->{hola} =  $decoder->decode($imploded->{hola});
+$imploded->{hola} =  decode_json($imploded->{hola});
 
 my $expected = {
     hola => {
