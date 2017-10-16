@@ -52,7 +52,7 @@ my @condvars;
 # Check for config file
 unless (defined $config_file && -r $config_file) {
     pod2usage(
-        -verbose => 1, 
+        -verbose => 1,
         -exitval => "NOEXIT");
     AE::log fatal => "A configuration file is required";
 }
@@ -95,16 +95,16 @@ AE::log 'info' => "Exiting";
 exit 0;
 
 sub reload_config {
-    # Clear 
+    # Clear
     $mqtt->cleanup if defined $mqtt && ref $mqtt;
     undef $config;
     $dbh->disconnect if defined $dbh && ref $dbh;
     undef $commit_timer;
     @condvars = ();
-     
+
     # Read the config file
-    try { 
-        AE::log 'info' => "Loading configuration file from $config_file";
+    try {
+        AE::log 'info' => "Loading configuration file from <$config_file>";
         $config = LoadFile($config_file);
     }
     catch {
@@ -118,7 +118,7 @@ sub reload_config {
 
     # Set id
     $id //= $config->{Broker}{client_id} || 'mqtt2db';
-    
+
     # Connect to the MQTT broker
     try {
         my $c = $config->{Broker};
@@ -156,10 +156,10 @@ sub reload_config {
         my $dbname = $c->{DBname}     || die "DBname is missing";
         my $acomm  = $c->{autoCommit} // 1;
         AE::log 'info' => "Connecting to <$drv> database <$dbname>";
-        
+
         $dbh = DBI->connect(
-            "dbi:$drv:dbname=$dbname", 
-            $c->{user}, 
+            "dbi:$drv:dbname=$dbname",
+            $c->{user},
             $c->{password},
             { AutoCommit => $acomm, RaiseError => 1 })
             || die  "Could not connect to the database: $DBI::errstr";
@@ -179,7 +179,7 @@ sub reload_config {
         my ($def) = values %$conv;
 
         AE::log 'info' => "Setting up conversation <$nam>";
-        
+
         try {
             # Load the class that should process the current topic
             my $class;
@@ -195,11 +195,11 @@ sub reload_config {
             AE::log 'fatal' =>  "Error loading class <$class>: $@"
                 if $@;
 
-            AE::log 'debug' => "Instantiating handler for <$nam>"; 
+            AE::log 'debug' => "Instantiating handler for <$nam>";
             $def->{'topic name'} = $nam;
             my $handler = $class->new($def);
-            
-            AE::log 'info' 
+
+            AE::log 'info'
                 =>  "Subscribing to conversation <$nam> with topic <"
                     . $handler->subscription_topic . ">";
             my $s = $mqtt->subscribe(
@@ -220,10 +220,10 @@ sub reload_config {
     if (!$config->{Database}{autoCommit}) {
         my $period = $config->{Database}{'commit every'} || 60;
         AE::log info => "Database changes will commit every $period seconds";
-        $commit_timer = AnyEvent->timer( 
+        $commit_timer = AnyEvent->timer(
             after    => $period,
             interval => $period,
-            cb       => sub { 
+            cb       => sub {
                 try {
                     $dbh->commit;
                 }
@@ -250,7 +250,7 @@ mqtt2bd - Simple database interaction through MQTT messages
 =head1 SYNOPSIS
 
  mqtt2db [options] --config config_file.yml
- 
+
  Options:
 
  i, id          Client identification string
@@ -259,22 +259,20 @@ mqtt2bd - Simple database interaction through MQTT messages
  d, debug       Turn on debugging messages
  V, version     Show program version and exit
  ?, help        Show the documentation and exit
- 
+
  See the documentation for the description of the configuration file.
 
 =head1 DESCRIPTION
 
-This program implements a MQTT-based interface to a database. In order to work, it subscribes to a list of MQTT topics defined in its configuration file. Each topic may define one or more SQL statements to execute on the database and possibly, the definition of a response MQTT message.
+This program implements a MQTT-based interface to a database. In order to work, it subscribes to a list of MQTT topics defined in its configuration file. For each topic, you may define one or more SQL statements to be executed on the database and possibly, the definition of a response MQTT message.
 
-The program parses incoming messages (both the topic and the body of the message) looking for the value of pre-defined fields. These fields are then stored in a sort of clipboard, the fields hash. SQL statements take their parameters from this fields hash and they put their results back in it as well. Finally, if there is a response, it may take fields from the hash and send these field values back in the message topic or body.
-
-Please note that this program is able to retrieve a single row of data from the database.
+The program parses incoming messages (both the topic and the body of the message) looking for the value of pre-defined fields. These fields are then stored in a hash. SQL statements take their parameters from this hash of fields and they put their results back in the hash. Finally, if there is a response, it may take fields from the hash and send these field values back in the message topic or body.
 
 =head1 CONFIGURATION FILE
 
 The configuration file is in YAML. There is an example configuration file in this distribution. You can find the YAML specification here: L<http://yaml.org/spec/1.0/>.
 
-It requires the following top-level sections: 
+It requires the following top-level sections:
 
 =head2 MQTT broker
 
@@ -286,7 +284,7 @@ This section defines the connection parameters for the MQTT broker. These come f
 
 =item * port - Port the broker is listening to. Defaults to 1883.
 
-=item * timeout - Timeout for response from the server. 
+=item * timeout - Timeout for response from the server.
 
 =item * user_name - User name for the broker.
 
@@ -356,7 +354,7 @@ There are two ways of defining the SQL messages and their place holders that pro
     - machine_id
 
 On the other hand, if there are multiple statements, they have to be treated differently:
- 
+
  topic: ":area/:machine_type/:machine_id/alarm/set"
  SQL statements:
     - First statement description:
@@ -377,9 +375,22 @@ On the other hand, if there are multiple statements, they have to be treated dif
 
 In the example above, the I<alarm> field would come from the body of the MQTT message. SQL statements would be executed in the given order and their results (in the case of SELECT statements) would be put in the hash of fields.
 
+Please note that this program is able to retrieve only a single row of data from the database.
+
+=head3 Response Objects
+
+Optionally, the program may issue a response in the form of an MQTT message. Response objects are defined like this:
+
+ response:
+    topic: "machine/:machine_id/reference/set"
+    fields:
+        - part_number
+
+They only require a topic and a list of fields. The topic may contain fields, prepended with ':', whose values will be taken from the fields hash.
+
 =head3 Imploding Fields
 
-Sometimes, it is useful to maintain a set of values into a single database field. This program can serialize several distinct values into a hash, using Sereal, and store this hash in a destination field.
+Sometimes, it is useful to maintain a set of values into a single database field. This program can serialize several distinct values into a hash, using JSON, and store this hash in a destination field.
 
 The configuration file would look like this:
 
@@ -394,9 +405,11 @@ This format limits imploded columns to one per topic.
 
 Any field not present in the list will be imploded into the table column defined as destination.
 
+Implosion is done on I<incoming> MQTT messages.
+
 =head3 Exploding Fields
 
-Fields that have been imploded on arrival need to be exploded when going out. A list of fields to explode may be given in the topic definition:
+Fields that have been imploded on arrival need to be exploded when going out. A list of fields to explode may be given in the response definition:
 
  topic: ":area/:type/:machine_id/parameters/get"
  SQL: >
@@ -405,10 +418,10 @@ Fields that have been imploded on arrival need to be exploded when going out. A 
     WHERE machine_id = ?
  place holders:
     - machine_id
- explode:
-    - current_params
  response:
     topic: ":area/:type/:machine_id/parameters/set"
+     explode:
+        - current_params
     fields:
         - stops_position
         - brush_boolean
@@ -419,18 +432,7 @@ Fields that have been imploded on arrival need to be exploded when going out. A 
 
 The above example fetches the single field current_params from the database, and then it explodes it and sends back some of the resulting fields to the client.
 
-Exploded database fields need to be serialized using Sereal.
-
-=head3 Response Objects
-
-Optionally, the program may issue a response in the form of an MQTT message. Response objects are defined like this:
-
- response:
-    topic: "machine/:machine_id/reference/set"
-    fields:
-        - part_number
-
-They only have a topic and a list of fields. The topic may contain fields, prepended with ':', whose values will be taken from the fields hash.
+Exploded database fields need to be serialized using JSON.
 
 =head1 LICENSE
 

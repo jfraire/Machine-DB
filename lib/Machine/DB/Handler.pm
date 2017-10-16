@@ -183,9 +183,11 @@ sub _build_msg_parser {
 sub _build_msg_decoder {
     my $self = shift;
     if ($self->decode_msg_with eq 'Sereal') {
+        AE::log debug => 'Using Sereal to decode messages';
         return sub { return $sereal_decoder->decode(shift) };
     }
     elsif ($self->decode_msg_with eq 'JSON') {
+        AE::log debug => 'Using JSON to decode messages';
         return sub { return decode_json(shift) };
     }
 }
@@ -193,9 +195,11 @@ sub _build_msg_decoder {
 sub _build_msg_encoder {
     my $self = shift;
     if ($self->decode_msg_with eq 'Sereal') {
+        AE::log debug => 'Using Sereal to encode messages';
         return sub { return $sereal_encoder->encode(shift) };
     }
     elsif ($self->decode_msg_with eq 'JSON') {
+        AE::log debug => 'Using JSON to encode messages';
         return sub { return encode_json(shift) };
     }
 }
@@ -335,6 +339,7 @@ sub subscription_callback {
             my $rtopic = $self->response_topic($data);
             my $rmsg   = $self->response_message($data);
             $rmsg      = $self->encode_msg($rmsg);
+            AE::log debug => "Publishing to $rtopic: $rmsg";
             my $cv = $mqtt->publish(topic => $rtopic, message => $rmsg);
             $cv->recv;
         }
