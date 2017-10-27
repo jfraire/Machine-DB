@@ -1,7 +1,7 @@
 #! /usr/bin/env perl
 
 use lib 'lib';
-use YAML qw(LoadFile);
+use YAML::XS qw(LoadFile);
 use Try::Tiny;
 use Getopt::Long;
 use Pod::Usage;
@@ -20,7 +20,7 @@ our $VERSION = '0.01';
 
 # Processing of command line options
 my $id;
-my $config_file = '';
+my $config_file;
 my $verbose;
 my $debug;
 my $help;
@@ -35,6 +35,7 @@ GetOptions(
     'help|?'     => \$help,
 ) or pod2usage(-verbose => 0);
 
+$AnyEvent::Log::FILTER->level('error');
 $AnyEvent::Log::FILTER->level('info')  if $verbose;
 $AnyEvent::Log::FILTER->level('debug') if $debug;
 
@@ -62,10 +63,13 @@ reload_config();
 
 my $cv = AnyEvent->condvar;
 
-# Falta agregar tratamiento de senales (stop, restart)
+# TERM and HUP signal handlers
 my $w1 = AnyEvent->signal(
     signal => 'TERM',
-    cb     => sub { $cv->send }
+    cb     => sub {
+        AE::log info => 'Received TERM signal'; 
+        $cv->send;
+    }
 );
 
 my $w2 = AnyEvent->signal(

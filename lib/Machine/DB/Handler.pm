@@ -298,7 +298,7 @@ sub subscription_callback {
 	my $cb = sub {
 		my ($topic, $msg) = @_;
 
-        AE::log debug => "Processing incoming message with topic $topic";
+        AE::log debug => "Processing incoming message with topic <$topic>";
         
         # Builds hash ref with the topic and body of the message
 		my $data = $self->parse_msg($topic, $msg);
@@ -336,6 +336,8 @@ sub subscription_callback {
         
         # Build the response
         if ($self->has_responder) {
+            AE::log debug => "Building response to <$topic>: <"
+                . $self->responder->name . ">";
             $data = $self->explode_fields($data)
                 if $self->has_fields_to_explode;
             my $rtopic = $self->response_topic($data);

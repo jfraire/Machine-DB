@@ -79,7 +79,7 @@ sub explode_fields {
         eval { $decoded = decode_json($value) };
         AE::log('fatal',
             "Exploded object could not be decoded or it is not a hash "
-            . "reference in response " . $self->name
+            . "reference in response <" . $self->name . ">"
         ) if $@ || !defined $decoded || ref($decoded) ne 'HASH';
         my %combined = (%$data, %$decoded);
         $data        = \%combined; 
