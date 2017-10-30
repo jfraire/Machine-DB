@@ -46,7 +46,6 @@ AE::log 'debug' => "Working directory: " . `pwd`;
 
 my $mqtt;
 my $dbh;
-my $commit_timer;
 my $config;
 my @condvars;
 
@@ -103,7 +102,6 @@ sub reload_config {
     $mqtt->cleanup if defined $mqtt && ref $mqtt;
     undef $config;
     $dbh->disconnect if defined $dbh && ref $dbh;
-    undef $commit_timer;
     @condvars = ();
 
     # Read the config file
@@ -158,7 +156,7 @@ sub reload_config {
         my $c      = $config->{Database};
         my $drv    = $c->{driver}     || die "Database driver is missing";
         my $dbname = $c->{DBname}     || die "DBname is missing";
-        my $acomm  = $c->{autoCommit} // 1;
+        my $acomm  = $c->{autoCommit} // 0;
         AE::log 'info' => "Connecting to <$drv> database <$dbname>";
 
         $dbh = DBI->connect(
@@ -256,25 +254,6 @@ sub reload_config {
         };
     }
 
-    # If the database is not in auto-commit mode, commit every
-    if (!$config->{Database}{autoCommit}) {
-        my $period = $config->{Database}{'commit every'} || 60;
-        AE::log info => "Database changes will commit every $period seconds";
-        $commit_timer = AnyEvent->timer(
-            after    => $period,
-            interval => $period,
-            cb       => sub {
-                try {
-                    $dbh->commit;
-                }
-                catch {
-                    AE::log fatal =>
-                        "Failed commiting changes to the database: $_";
-                };
-            }
-        );
-    }
-
     push @condvars, $mqtt->publish(
         topic   => "admin/connected/$id",
         message => ''
@@ -353,7 +332,7 @@ This section defines the database connection parameters using a mapping of scala
     User: ~
     Password: ~
 
-These four options are required.
+These four options are required. The optional argument C<autoCommit>, if set to zero, will enable transactions. See below in the section about SQL statements for more information.
 
 =head2 Topics
 
@@ -416,6 +395,8 @@ On the other hand, if there are multiple statements, they have to be treated dif
 In the example above, the I<alarm> field would come from the body of the MQTT message. SQL statements would be executed in the given order and their results (in the case of SELECT statements) would be put in the hash of fields.
 
 Please note that this program is able to retrieve only a single row of data from the database.
+
+By default, the SQL statements will be executed within a transaction. In case any of the statements fails, the transaction will be rolled back and an error message will be logged. The database may be set in auto-commit mode by setting the option C<autoCommit> to 1.
 
 =head3 Response Objects
 

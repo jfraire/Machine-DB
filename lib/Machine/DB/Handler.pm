@@ -1,5 +1,6 @@
 package Machine::DB::Handler;
 
+use Try::Tiny;
 use Machine::DB::Responder;
 use JSON;
 use Sereal::Encoder;
@@ -311,25 +312,41 @@ sub subscription_callback {
         $data = $self->implode($data) if $self->has_implode_fields;
         
         # Execute the list of SQL statements
-        foreach my $inter (@{$self->db_interactions}) {
-            
-            # Get the values to bind to the sql statement
-            my @bind = map { $data->{$_} } @{$inter->{'place holders'}};
-            $inter->{sth}->execute(@bind);
-            AE::log error => $DBI::errstr if $DBI::errstr;
-            
-            if ($inter->{SQL} =~ /^\s*SELECT/si) {
-                # Fetch results: Only one record is allowed
-                my $rec = $inter->{sth}->fetchrow_hashref;
-                $inter->{sth}->finish;
+        try {        
+            foreach my $inter (@{$self->db_interactions}) {
                 
-                # Combine fetched data with message data
-                if (defined $rec && %$rec) {
-                    my %combined = (%$data, %$rec);
-                    $data = \%combined;
+                # Get the values to bind to the sql statement
+                my @bind = map { $data->{$_} } @{$inter->{'place holders'}};
+                $inter->{sth}->execute(@bind);
+                die $dbh->errstr if $dbh->errstr;
+                
+                if ($inter->{SQL} =~ /^\s*SELECT/si) {
+                    # Fetch results: Only one record is allowed
+                    my $rec = $inter->{sth}->fetchrow_hashref;
+                    $inter->{sth}->finish;
+                    
+                    # Combine fetched data with message data
+                    if (defined $rec && %$rec) {
+                        my %combined = (%$data, %$rec);
+                        $data = \%combined;
+                    }
                 }
             }
         }
+        catch {
+            if ($dbh->{AutoCommit} ) {
+                AE::log error => "Database interaction for handler <"
+                    . $self->name . "> failed, "
+                    . "and transactions are not enabled. Error: $_";
+            }
+            else {
+                AE::log error => "Database interaction for handler <"
+                    . $self->name . "> failed - Rolling back changes. "
+                    . "Error: $_";
+                $dbh->rollback
+                    || AE::log error => "Roll-back failed: " . $dbh->errstr;
+            }
+        };
         
         # Call post-processing callbacks
         $self->postprocess($dbh, $data);
