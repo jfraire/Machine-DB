@@ -294,6 +294,7 @@ sub subscription_callback {
     # Prepare the SQL statements
     foreach my $inter (@{$self->db_interactions}) {
         $inter->{sth} = $dbh->prepare($inter->{SQL});
+        AE::log debug => 'Prepared <' . $inter->{SQL} . '>';
     }
     
 	my $cb = sub {
@@ -318,6 +319,8 @@ sub subscription_callback {
                 # Get the values to bind to the sql statement
                 my @bind = map { $data->{$_} } @{$inter->{'place holders'}};
                 $inter->{sth}->execute(@bind);
+                AE::log debug => 'Executed <' . $inter->{SQL}
+                    . '> binding ' . join ', ', map { "<$_>" } @bind; 
                 die $dbh->errstr if $dbh->errstr;
                 
                 if ($inter->{SQL} =~ /^\s*SELECT/si) {
@@ -332,6 +335,8 @@ sub subscription_callback {
                     }
                 }
             }
+
+            $dbh->commit;
         }
         catch {
             if ($dbh->{AutoCommit} ) {
