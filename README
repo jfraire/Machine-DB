@@ -1,0 +1,218 @@
+NAME
+    mqtt2bd - Simple database interaction through MQTT messages
+
+SYNOPSIS
+     mqtt2db [options] config_file.yml
+
+     Options:
+
+     v, verbose     Turn on notice messages
+     V, version     Show program version and exit
+     ?, help        Show the documentation and exit
+
+     See the documentation for the description of the configuration file.
+
+DESCRIPTION
+    This program implements a MQTT-based interface to a database. In order
+    to work, it subscribes to a list of MQTT topics defined in its
+    configuration file. Each topic may define one or more SQL statements to
+    execute on the database and possibly, the definition of a response MQTT
+    message.
+
+    The program parses incoming messages (both the topic and the body of the
+    message) looking for the value of pre-defined fields. These fields are
+    then stored in a sort of clipboard, the fields hash. SQL statements take
+    their parameters from this hash of fields and they put their results
+    back in. Finally, if there is a response, it may take fields from the
+    hash and send these field values back in the message topic or body.
+
+    Please note that this program is able to retrieve a single row of data
+    from the database.
+
+CONFIGURATION
+    The configuration file is in YAML. There is an example configuration
+    file in this distribution. You can find the YAML specification here:
+    <http://yaml.org/spec/1.0/>.
+
+    It requires the following top-level sections:
+
+  MQTT broker
+    This section defines the connection parameters for the MQTT broker.
+    These come from AnyEvent::MQTT; the contents of this section are passed
+    as-is to the constructor. The most common are:
+
+    *   host - IP address of the broker. It is 'localhost' by default.
+
+    *   port - Port the broker is listening to. Defaults to 1883.
+
+    *   timeout - Timeout for response from the server.
+
+    *   user_name - User name for the broker.
+
+    *   password - Password for the broker.
+
+    *   will_topic, will_message, will_qos, will_retain - Define the message
+        that is sent when this program disconnects from the broker.
+
+    The example configuration file includes:
+
+     Broker:
+        host: localhost
+        will_topic: mqtt2db/disconnected
+        will_message: "Program mqtt2db is disconnected from broker"
+        client_id: mqtt2db
+
+  Database
+    This section defines the database connection parameters using a mapping
+    of scalars:
+
+     Database:
+        Driver: SQLite
+        DBname: example.db
+        User: ~
+        Password: ~
+
+    These four options are required.
+
+  Topics
+    Topics are the most complex part of the configuration file. They are
+    given as a list of hashes to improve readability. A sample definition
+    might look like this:
+
+     Topics:
+        - Machine requests for parameters:
+            topic: :area/:machine_type/:machine_id/reference/get
+            SQL: >
+                SELECT next_reference
+                FROM   machine_state
+                WHERE  machine_id = ?
+            place holders:
+                - machine_id
+            response:
+                topic: :area/:machine_type/:machine_id/reference/set
+                fields:
+                    - next_reference
+
+    Each topic has a name (which is not used by the program), a topic, one
+    or more SQL parameters, a list of place holders for the SQL parameters,
+    and possibly, a response object. The functionality behind topics is
+    hidden in the module Machine::DB::Handler.
+
+   Topic
+    Each topic in the configuration file needs a MQTT topic to subscribe to.
+    This topic may include fields that need to be parsed in order to
+    interact with the data base. These fields must be prepended with ':'. In
+    the example above, we have the fields *area*, *machine_type*, and
+    *machine_id*. The resulting MQTT topic would be *+/+/+/reference/get*.
+
+    Field values parsed from the topic of the message are put into a same
+    hash as the contents of the message body.
+
+   SQL Statements
+    There are two ways of defining the SQL messages and their place holders.
+    If there is just one SQL statement, it can be defined with the SQL key
+    along with its place holders:
+
+     topic: :area/:machine_type/:machine_id/reference/get
+     SQL: >
+        SELECT next_reference
+        FROM   machine_state
+        WHERE  machine_id = ?
+     place holders:
+        - machine_id
+
+    On the other hand, if there are multiple statements, they have to be
+    treated as a list:
+
+     topic: :area/:machine_type/:machine_id/alarm/set
+     SQL statements:
+        - First statement description:
+            SQL: >
+                UPDATE machine_state
+                SET    alarm = ?
+                WHERE  machine_id = ?
+            place holders:
+                - machine_id
+                - alarm
+        - Second statement description:
+            SQL: >
+                SELECT next_reference
+                FROM   machine_state
+                WHERE  machine_id = ?
+            place holders:
+                - machine_id
+
+    In the example above, the *alarm* field would come from the body of the
+    MQTT message. SQL statements would be executed in the given order and
+    their results (in the case of SELECT statements) would be put in the
+    hash of fields.
+
+   Exploding Fields
+    Sometimes, it is usefull to store full, JSON-encoded hashes in a single
+    table column. For example, machine parameters which differ from a
+    machine type to another, may be stored in a general table if parameters
+    are simply stuffed in a JSON string and then put into a single table
+    column. However, the string must be exploded into its atomic values
+    before sending it to the client. A list of fields to explode may be
+    given in the topic definition:
+
+     topic: ":area/:type/:machine_id/parameters/get"
+     SQL: >
+        SELECT current_params
+        FROM machine_state
+        WHERE machine_id = ?
+     place holders:
+        - machine_id
+     explode:
+        - current_params
+     response:
+        topic: ":area/:type/:machine_id/parameters/set"
+        fields:
+            - turbine_acceleration
+            - trubine_speed
+            - turbine_inclination
+            - temperature_setpoint
+            - activate_cooling
+            - defrost_wings
+
+    The above example fetches the single JSON-encoded field *current_params*
+    from the database and decodes it. Then, some of the expanded fields are
+    sent back to the client.
+
+   Imploding Fields
+    The same logic for exploding fields applies the other way around. For
+    similar reasons, it may be that we want to stuff several fields into a
+    single database table column. The relevant part of the configuration
+    file should look like this:
+
+     implode all but:
+        fields:
+            - list
+            - of_fields
+            - not_to_implode
+        destination: table_column_name
+
+    This format limits imploded columns to one per topic.
+
+    Any field not present in the list will be imploded into the table column
+    defined as destination.
+
+   Response Objects
+    Optionally, the program may issue a response in the form of an MQTT
+    message. Response objects are defined like this:
+
+     response:
+        topic: "machine/:machine_id/reference/set"
+        fields:
+            - part_number
+
+    They only have a topic and a list of fields. The topic may contain
+    fields, prpended with ':', whose values will be taken from the fields
+    hash.
+
+LICENSE
+    This software is copyright (c) 2018 by Julio Fraire.
+
+    This is free software; you can redistribute it and/or modify it under
+    the same terms as the Perl 5 programming language system itself.
+

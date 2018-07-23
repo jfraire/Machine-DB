@@ -56,11 +56,11 @@ my $mqtt = AnyEvent::MQTT->new;
 
 ### Subscriptions
 
-my $seen = 0;
 my $cvs = $mqtt->subscribe(
     topic    => 'mqtt2db/disconnected',
     callback => sub {
         my ($topic, $msg) = @_;
+        state $seen = 0;
         if ($seen) {
             ok 'mqtt2db disconnected', 'Will message was received';
             $cv->send;

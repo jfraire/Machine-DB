@@ -1,6 +1,6 @@
-use Test::More tests => 5;
+use Test::More tests => 6;
 use JSON;
-use DBI;
+use DBIx::Connector;
 use strict;
 use warnings;
 use_ok 'Machine::DB::Handler';
@@ -68,16 +68,17 @@ my $h = Machine::DB::Handler->new($def);
 ok ref $h, 'The handler was created successfully';
 
 # Database connection
-my $dbh = DBI->connect('dbi:SQLite:dbname=t/callback_test.db', '', '', {
+my $conn = DBIx::Connector->new(
+    'dbi:SQLite:dbname=t/callback_test.db', '', '', {
     AutoCommit => 1,
     RaiseError => 1
 });
-create_table($dbh);
+create_table($conn->dbh);
 
 
 # Actual tests
 my $st = $h->subscription_topic;
-my $cb = $h->subscription_callback($dbh, $mqtt);
+my $cb = $h->subscription_callback($conn, $mqtt);
 
 is $st, '+/is/+/+',
     'The subscription topic is correct';
@@ -90,13 +91,17 @@ $cb->($topic, $msg);
 
 my $result = $mqtt->report;
 $result->{message} = decode_json $result->{message};
+is ref delete $result->{cv}, 'AnyEvent::CondVar',
+    'The condition variable is given to the MQTT client';
+
+#note explain $result;
 
 is_deeply $result, $expected, 
     'The MQTT message was delivered correctly';
 
 # note explain $result;
 
-$dbh->disconnect;
+$conn->dbh->disconnect;
 done_testing();
 
 sub create_table {

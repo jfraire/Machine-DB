@@ -6,7 +6,7 @@ use namespace::clean;
 use strict;
 use warnings;
 
-our $VERSION = "0.01";
+our $VERSION = "0.06";
 
 1;
 __END__
@@ -39,4 +39,3 @@ it under the same terms as Perl itself.
 Julio Fraire E<lt>julio.fraire@gmail.comE<gt>
 
 =cut
-

@@ -4,3 +4,6 @@ Revision history for Perl extension Machine::DB.
 	- original version; created by h2xs 1.23 with options
 		-X Machine::DB
 
+0.06 2018-07-23
+    - Removed Sereal encoding and small improvements of the documentation
+    

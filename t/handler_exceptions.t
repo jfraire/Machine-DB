@@ -1,4 +1,4 @@
-use Test::More tests => 14;
+use Test::More tests => 12;
 use Test::Warn;
 use YAML;
 use Machine::DB::Handler;
@@ -172,7 +172,7 @@ YAML
             'topic'           => ':this/is/:a/:test',
             'SQL'             => 'sql statement',
             'place holders'   => [1,2,3],
-            'implode all but' => [ 
+            'implode all but' => [
                 destination => 'hola',
                 fields      => [qw(crayola)],
             ],
@@ -189,7 +189,7 @@ YAML
             'topic'           => ':this/is/:a/:test',
             'SQL'             => 'sql statement',
             'place holders'   => [1,2,3],
-            'implode all but' => { 
+            'implode all but' => {
                 # destination => 'hola',
                 fields      => [qw(crayola)],
             },
@@ -206,7 +206,7 @@ YAML
             'topic'           => ':this/is/:a/:test',
             'SQL'             => 'sql statement',
             'place holders'   => [1,2,3],
-            'implode all but' => { 
+            'implode all but' => {
                 destination => 'hola',
                 #fields      => [qw(crayola)],
             },
@@ -216,64 +216,24 @@ YAML
     'Code dies when list of fields for implosion is missing';
 }
 
-{
-    warning_like {
-        eval { my $h = Machine::DB::Handler->new(
-            'topic name'     => 'Testing handlers',
-            'topic'          => ':this/is/:a/:test',
-            'encode with'    => 'Other',
-            'decode with'    => 'Sereal',
-            'SQL'            => 'sql statement',
-            'place holders'  => [1,2,3],
-            'response'       => { 
-                topic  => 'response/:goes/here',
-                fields => [qw(hola crayola)],
-            },
-        )};
-    }
-    qr(Unknown encoder),
-    'Code dies when encoder is unknown';
-}
-
-{
-    warning_like {
-        eval { my $h = Machine::DB::Handler->new(
-            'topic name'     => 'Testing handlers',
-            'topic'          => ':this/is/:a/:test',
-            'encode with'    => 'Sereal',
-            'decode with'    => 'Other',
-            'SQL'            => 'sql statement',
-            'place holders'  => [1,2,3],
-            'response'       => { 
-                topic  => 'response/:goes/here',
-                fields => [qw(hola crayola)],
-            },
-        )};
-    }
-    qr(Unknown decoder),
-    'Code dies when decoder is unknown';
-}
-
 # Tests for runtime errors
 {
     warning_like {
         my $h = Machine::DB::Handler->new(
             'topic name'     => 'Testing handlers',
             'topic'          => ':this/is/:a/:test',
-            'encode with'    => 'Sereal',
-            'decode with'    => 'JSON',
             'SQL'            => 'sql statement',
             'place holders'  => [1,2,3],
-            'response'       => { 
+            'response'       => {
                 topic  => 'response/:goes/here',
                 fields => [qw(hola crayola)],
             },
         );
-        
+
         $h->decode_msg({this => 'Failing'}, '["Fail"]');
     }
     qr(is not a hash reference),
     'Handler reports a bad message if contents are not in a hash';
 }
-    
+
 done_testing();

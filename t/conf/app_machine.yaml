@@ -1,0 +1,110 @@
+---
+# See AnyEvent::MQTT for broker connection options
+Broker:
+    host:        localhost
+    will_topic:  mqtt2db/disconnected
+    will_retain: 0
+    client_id:   mqtt2db
+
+# See DBI and the driver for your database for connection options
+# If autoCommit is set to 0, changes will be commited every
+# 'commit every' seconds
+Database:
+    driver: SQLite
+    DBname: t/app_machine.db
+    user: ~
+    password: ~
+
+Topics:
+    - Request for current reference:
+        topic:    ":area/:type/:machine_id/reference/get"
+        SQL: >
+            SELECT part_number
+            FROM machine_state
+            WHERE machine_id = ?
+        place holders:
+            - machine_id
+        response:
+            topic: ":area/:type/:machine_id/reference/set"
+            fields:
+                - part_number
+
+    - Request for next reference:
+        topic:    ":area/:type/:machine_id/next/get"
+        SQL: >
+            SELECT next_item
+            FROM machine_state
+            WHERE machine_id = ?
+        place holders:
+            - machine_id
+        response:
+            topic: ":area/:type/:machine_id/next/set"
+            fields:
+                - next_item
+
+    - Request for current parameters:
+        topic: ":area/:type/:machine_id/parameters/get"
+        SQL: >
+            SELECT current_params
+            FROM machine_state
+            WHERE machine_id = ?
+        place holders:
+            - machine_id
+        response:
+            topic: ":area/:type/:machine_id/parameters/set"
+            explode:
+                - current_params
+            fields:
+                - stops_position
+                - brush_boolean
+                - temp_doser1_sp
+                - temp_doser2_sp
+                - filling_height
+                - filling_bilayer_height
+
+    - Activate next reference:
+        topic:    ":area/:type/:machine_id/next/activate"
+        SQL statements:
+            - Get the next reference:
+                SQL: >
+                    SELECT next_item
+                    FROM machine_state
+                    WHERE machine_id = ?
+                place holders:
+                    - machine_id
+                
+            - Copy next_item to part_number:
+                SQL: >
+                    UPDATE machine_state
+                    SET part_number = ?
+                    WHERE machine_id = ?
+                place holders:
+                    - next_item
+                    - machine_id
+            - Get the new parameters for the machine type and item:
+                SQL: >
+                    SELECT parameters 
+                    FROM parameters
+                    WHERE machine_type = ? AND part_number = ?
+                place holders:
+                    - type
+                    - next_item
+            - Write the retrieved parameters to machine state:
+                SQL: >
+                    UPDATE machine_state
+                    SET current_params = ?
+                    WHERE machine_id   = ?
+                place holders:
+                    - parameters
+                    - machine_id
+        response:
+            topic: ":area/:type/:machine_id/parameters/set"
+            explode:
+                - parameters
+            fields:
+                - stops_position
+                - brush_boolean
+                - temp_doser1_sp
+                - temp_doser2_sp
+                - filling_height
+                - filling_bilayer_height

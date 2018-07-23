@@ -6,14 +6,11 @@ mqtt2bd - Simple database interaction through MQTT messages
 
 =head1 SYNOPSIS
 
- mqtt2db [options] --config config_file.yml
+ mqtt2db [options] config_file.yml
 
  Options:
 
- i, id          Client identification string
- c, config      Configuration file
- v, verbose     Turn on informational messages
- d, debug       Turn on debugging messages
+ v, verbose     Turn on notice messages
  V, version     Show program version and exit
  ?, help        Show the documentation and exit
 
@@ -21,11 +18,13 @@ mqtt2bd - Simple database interaction through MQTT messages
 
 =head1 DESCRIPTION
 
-This program implements a MQTT-based interface to a database. In order to work, it subscribes to a list of MQTT topics defined in its configuration file. For each topic, you may define one or more SQL statements to be executed on the database and possibly, the definition of a response MQTT message.
+This program implements a MQTT-based interface to a database. In order to work, it subscribes to a list of MQTT topics defined in its configuration file. Each topic may define one or more SQL statements to execute on the database and possibly, the definition of a response MQTT message.
 
-The program parses incoming messages (both the topic and the body of the message) looking for the value of pre-defined fields. These fields are then stored in a hash. SQL statements take their parameters from this hash of fields and they put their results back in the hash. Finally, if there is a response, it may take fields from the hash and send these field values back in the message topic or body.
+The program parses incoming messages (both the topic and the body of the message) looking for the value of pre-defined fields. These fields are then stored in a sort of clipboard, the fields hash. SQL statements take their parameters from this hash of fields and they put their results back in. Finally, if there is a response, it may take fields from the hash and send these field values back in the message topic or body.
 
-=head1 CONFIGURATION FILE
+Please note that this program is able to retrieve a single row of data from the database.
+
+=head1 CONFIGURATION
 
 The configuration file is in YAML. There is an example configuration file in this distribution. You can find the YAML specification here: L<http://yaml.org/spec/1.0/>.
 
@@ -47,8 +46,7 @@ This section defines the connection parameters for the MQTT broker. These come f
 
 =item * password - Password for the broker.
 
-=item * will_topic, will_message, will_qos, will_retain - Define the message that is sent if this program disconnects abruptly from the
-broker.
+=item * will_topic, will_message, will_qos, will_retain - Define the message that is sent when this program disconnects from the broker.
 
 =back
 
@@ -78,7 +76,7 @@ Topics are the most complex part of the configuration file. They are given as a 
 
  Topics:
     - Machine requests for parameters:
-        topic: ":area/:machine_type/:machine_id/reference/get"
+        topic: :area/:machine_type/:machine_id/reference/get
         SQL: >
             SELECT next_reference
             FROM   machine_state
@@ -96,13 +94,13 @@ Each topic has a name (which is not used by the program), a topic, one or more S
 
 Each topic in the configuration file needs a MQTT topic to subscribe to. This topic may include fields that need to be parsed in order to interact with the data base. These fields must be prepended with ':'. In the example above, we have the fields I<area>, I<machine_type>, and I<machine_id>. The resulting MQTT topic would be I<+/+/+/reference/get>.
 
-The fields thus parsed are put into a hash reference, which will then be merged with the contents of the message body.
+Field values parsed from the topic of the message are put into a same hash as the contents of the message body.
 
 =head3 SQL Statements
 
-There are two ways of defining the SQL messages and their place holders that process incoming MQTT messages. If there is just one SQL statement, it can be defined with the SQL key along with its place holders:
+There are two ways of defining the SQL messages and their place holders. If there is just one SQL statement, it can be defined with the SQL key along with its place holders:
 
- topic: ":area/:machine_type/:machine_id/reference/get"
+ topic: :area/:machine_type/:machine_id/reference/get
  SQL: >
     SELECT next_reference
     FROM   machine_state
@@ -110,9 +108,9 @@ There are two ways of defining the SQL messages and their place holders that pro
  place holders:
     - machine_id
 
-On the other hand, if there are multiple statements, they have to be treated differently:
+On the other hand, if there are multiple statements, they have to be treated as a list:
 
- topic: ":area/:machine_type/:machine_id/alarm/set"
+ topic: :area/:machine_type/:machine_id/alarm/set
  SQL statements:
     - First statement description:
         SQL: >
@@ -132,24 +130,34 @@ On the other hand, if there are multiple statements, they have to be treated dif
 
 In the example above, the I<alarm> field would come from the body of the MQTT message. SQL statements would be executed in the given order and their results (in the case of SELECT statements) would be put in the hash of fields.
 
-Please note that this program is able to retrieve only a single row of data from the database.
+=head3 Exploding Fields
 
-=head3 Response Objects
+Sometimes, it is usefull to store full, JSON-encoded hashes in a single table column. For example, machine parameters which differ from a machine type to another, may be stored in a general table if parameters are simply stuffed in a JSON string and then put into a single table column. However, the string must be exploded into its atomic values before sending it to the client. A list of fields to explode may be given in the topic definition:
 
-Optionally, the program may issue a response in the form of an MQTT message. Response objects are defined like this:
-
+ topic: ":area/:type/:machine_id/parameters/get"
+ SQL: >
+    SELECT current_params
+    FROM machine_state
+    WHERE machine_id = ?
+ place holders:
+    - machine_id
+ explode:
+    - current_params
  response:
-    topic: "machine/:machine_id/reference/set"
+    topic: ":area/:type/:machine_id/parameters/set"
     fields:
-        - part_number
+        - turbine_acceleration
+        - trubine_speed
+        - turbine_inclination
+        - temperature_setpoint
+        - activate_cooling
+        - defrost_wings
 
-They only require a topic and a list of fields. The topic may contain fields, prepended with ':', whose values will be taken from the fields hash.
+The above example fetches the single JSON-encoded field I<current_params> from the database and decodes it. Then, some of the expanded fields are sent back to the client.
 
 =head3 Imploding Fields
 
-Sometimes, it is useful to maintain a set of values into a single database field. This program can serialize several distinct values into a hash, using JSON, and store this hash in a destination field.
-
-The configuration file would look like this:
+The same logic for exploding fields applies the other way around. For similar reasons, it may be that we want to stuff several fields into a single database table column. The relevant part of the configuration file should look like this:
 
  implode all but:
     fields:
@@ -162,76 +170,20 @@ This format limits imploded columns to one per topic.
 
 Any field not present in the list will be imploded into the table column defined as destination.
 
-Implosion is done on I<incoming> MQTT messages.
+=head3 Response Objects
 
-=head3 Exploding Fields
+Optionally, the program may issue a response in the form of an MQTT message. Response objects are defined like this:
 
-Fields that have been imploded on arrival need to be exploded when going out. A list of fields to explode may be given in the response definition:
-
- topic: ":area/:type/:machine_id/parameters/get"
- SQL: >
-    SELECT current_params
-    FROM machine_state
-    WHERE machine_id = ?
- place holders:
-    - machine_id
  response:
-    topic: ":area/:type/:machine_id/parameters/set"
-    explode:
-        - current_params
+    topic: "machine/:machine_id/reference/set"
     fields:
-        - stops_position
-        - brush_boolean
-        - temp_doser1_sp
-        - temp_doser2_sp
-        - filling_height
-        - filling_bilayer_height
+        - part_number
 
-The above example fetches the single field current_params from the database, and then it explodes it and sends back some of the resulting fields to the client.
+They only have a topic and a list of fields. The topic may contain fields, prpended with ':', whose values will be taken from the fields hash.
 
-Exploded database fields need to be serialized using JSON.
+=head1 LICENSE
 
-=head2 Responses
-
-In case different topics result in the same response, you can define responses independently in their own section. This way, you can simply name the responses:
-
- Responses:
-    - Send parameters:
-        topic: ":area/:type/:machine_id/parameters/set"
-        explode:
-            - current_params
-        fields:
-            - stops_position
-            - brush_boolean
-            - temp_doser1_sp
-            - temp_doser2_sp
-            - filling_height
-            - filling_bilayer_height
- Topics:
-    Get current parameters:
-         topic: ":area/:type/:machine_id/parameters/get"
-         SQL: >
-            SELECT current_params
-            FROM machine_state
-            WHERE machine_id = ?
-         place holders:
-            - machine_id
-         response: Send parameters
-
-    Get standard parameters:
-         topic: ":area/:type/:machine_id/std_parameters/get"
-         SQL: >
-            SELECT parameters
-            FROM machine_parameters
-            WHERE machine_type = ? AND part_number = ?
-         place holders:
-            - machine_id
-            - part_number
-         response: Send parameters
- 
-=head1 LICENSE AND COPYRIGHT
-
-This software is copyright (c) 2017 by Julio Fraire.
+This software is copyright (c) 2018 by Julio Fraire.
 
 This is free software; you can redistribute it and/or modify it under the same terms as the Perl 5 programming language system itself.
 

@@ -1,6 +1,6 @@
-use Test::More;
+use Test::More tests => 5;
 use JSON;
-use DBI;
+use DBIx::Connector;
 use strict;
 use warnings;
 
@@ -30,16 +30,17 @@ my $h = Machine::DB::Handler->new($def);
 ok ref $h, 'The handler was created successfully';
 
 # Database connection
-my $dbh = DBI->connect('dbi:SQLite:dbname=t/callback_test.db', '', '', {
+my $conn = DBIx::Connector->new(
+    'dbi:SQLite:dbname=t/callback_test.db', '', '', {
     AutoCommit => 1,
     RaiseError => 1
 });
-create_table($dbh);
+create_table($conn->dbh);
 
 
 # Actual tests
 my $st = $h->subscription_topic;
-my $cb = $h->subscription_callback($dbh, {});
+my $cb = $h->subscription_callback($conn, {});
 
 is $st, '+/is/+/+',
     'The subscription topic is correct';
@@ -51,7 +52,7 @@ is ref($cb), 'CODE',
 $cb->($topic, $msg);
 
 # Check the contents of the database
-my $res = $dbh->selectall_arrayref('
+my $res = $conn->dbh->selectall_arrayref('
     SELECT hola, crayola FROM callback_test
 ');
 
@@ -61,7 +62,7 @@ is_deeply $res, [[$crayola, 'Andy']],
     'Data was inserted correctly';
 
 
-$dbh->disconnect;
+$conn->dbh->disconnect;
 done_testing();
 
 sub create_table {

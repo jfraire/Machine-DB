@@ -1,6 +1,6 @@
-use Test::More tests => 9;
+use Test::More tests => 12;
 use JSON;
-use DBI;
+use DBIx::Connector;
 use strict;
 use warnings;
 use_ok 'Machine::DB::Handler';
@@ -10,7 +10,7 @@ use warnings;
 
 # SQL insert statement
 my $sql = <<SQL;
-SELECT a_text FROM callback_test 
+SELECT a_text FROM callback_test
 WHERE a_number = ?
 SQL
 
@@ -45,17 +45,17 @@ my $expected = {
 # Mock the MQTT object
 {
     package Mocked::MQTT;
-    
+
     my $state;
-    
+
     sub publish {
         my ($self, %args) = @_;
         $state = \%args;
         return $self;
     };
-    
+
     sub recv { }
-    
+
     sub report {
         return $state;
     }
@@ -70,41 +70,44 @@ ok ref $h, 'The handler was created successfully';
 # Preprocessing routines
 $h->add_to_preprocess(
     sub {
-        my ($h, $dbh, $data) = @_;
-        # note explain $data; 
+        my ($h, $conn, $data) = @_;
+        # note explain $data;
         pass 'Preprocessing routine is running';
-        is $data->{a}, 'writting', 
+        is $data->{a}, 'writting',
             'Preprocessing routine got expected data';
         $data->{a} = 'Smiling';
+        isa_ok $conn, 'DBIx::Connector';
     },
     sub {
-        my ($h, $dbh, $data) = @_;
+        my ($h, $conn, $data) = @_;
         $data->{e} *= 2;
     },
 );
 
 $h->add_to_postprocess(
     sub {
-        my ($h, $dbh, $data) = @_;
+        my ($h, $conn, $data) = @_;
         pass 'Postprocessing routine is running';
-        is $data->{a}, 'Smiling', 
+        is $data->{a}, 'Smiling',
             'Postprocessing routine got expected data';
         $data->{d} *= 3;
+        isa_ok $conn, 'DBIx::Connector';
     },
 );
 
 
 # Database connection
-my $dbh = DBI->connect('dbi:SQLite:dbname=t/callback_test.db', '', '', {
+my $conn = DBIx::Connector->new(
+    'dbi:SQLite:dbname=t/callback_test.db', '', '', {
     AutoCommit => 1,
     RaiseError => 1
 });
-create_table($dbh);
+create_table($conn->dbh);
 
 
 # Actual tests
 my $st = $h->subscription_topic;
-my $cb = $h->subscription_callback($dbh, $mqtt);
+my $cb = $h->subscription_callback($conn, $mqtt);
 
 is $st, '+/is/+/+',
     'The subscription topic is correct';
@@ -116,14 +119,17 @@ $cb->($topic, $msg);
 
 
 my $result = $mqtt->report;
+# note explain $result;
 $result->{message} = decode_json $result->{message};
+is ref delete $result->{cv}, 'AnyEvent::CondVar',
+    'The condition variable is given to the MQTT client';
 
-is_deeply $result, $expected, 
+is_deeply $result, $expected,
     'The MQTT message was delivered correctly';
 
 # note explain $result;
 
-$dbh->disconnect;
+$conn->dbh->disconnect;
 done_testing();
 
 sub create_table {

@@ -4,6 +4,7 @@ Broker:
     host: localhost
     will_topic: mqtt2db/disconnected
     will_message: "Program mqtt2db has disconnected from broker"
+    will_retain: 1
     client_id: mqtt2db
 
 # See DBI and the driver for your database for connection options
