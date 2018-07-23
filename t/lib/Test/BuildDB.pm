@@ -7,8 +7,8 @@ use warnings;
 use autodie;
 use v5.10;
 
-my $db_schema = "SQL/schemaV2.sql";
-my $db_data   = "SQL/insert_records.sql";
+my $db_schema = "t/SQL/schemaV2.sql";
+my $db_data   = "t/SQL/insert_records.sql";
 my $db_file   = "t/app_machine.db";
 
 sub create_test_db {
@@ -33,7 +33,7 @@ sub create_test_db {
         }
         close $sql;
     }
-    
+
     # Insert test values
     {
         open my $sql, '<', $db_data;
@@ -44,7 +44,7 @@ sub create_test_db {
         }
         close $sql;
     }
-    
+
     # Insert the current parameters. They need to be in Sereal format.
     {
         my $params = {
@@ -55,22 +55,22 @@ sub create_test_db {
             filling_height           => 4150,
             temp_doser2_sp           => 400,
         };
-        
+
         my $sth = $dbh->prepare(
             "UPDATE machine_state SET current_params = ?
              WHERE machine_id = ?"
         );
         $sth->execute(encode_json($params), 'X12-001');
     }
-    
-    # Insert parameters for the two existing references. 
+
+    # Insert parameters for the two existing references.
     # They need to be in Sereal format.
     {
         my $sth = $dbh->prepare(
-            "INSERT INTO parameters (machine_type, part_number, parameters) 
+            "INSERT INTO parameters (machine_type, part_number, parameters)
              VALUES (?,?,?)"
         );
-        
+
         my $params = {
             stops_position           => 1340,
             brush_boolean            => 10,
