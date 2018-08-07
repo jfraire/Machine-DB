@@ -6,7 +6,7 @@ use warnings;
 use_ok 'Machine::DB::Responder';
 
 my $r = Machine::DB::Responder->new(
-    topic   => 'this/is/:a/:test',
+    topic   => 'this/is/:a/:blue',
     fields  => [qw(hola crayola)],
     explode => [qw(cracker)],
 );
@@ -25,12 +25,12 @@ my $data = {
     cracker => encode_json(\%hash),
 };
 
-is $r->topic_template, 'this/is/:a/:test',
+is $r->topic_template, 'this/is/:a/:blue',
     'Topic template is read correctly';
 
 my ($topic, $body) = $r->build_response($data);
 
-is $topic, 'this/is/1/2',
+is $topic, 'this/is/1/azul',
     'Response topic is built correctly';
 
 is_deeply $body, {

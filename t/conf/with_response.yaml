@@ -1,0 +1,49 @@
+---
+# See AnyEvent::MQTT for broker connection options
+Broker:
+    host: localhost
+    will_topic: mqtt2db/disconnected
+    will_message: "Program mqtt2db has disconnected from broker"
+    will_retain: 1
+    client_id: mqtt2db
+
+# See DBI and the driver for your database for connection options
+# If autoCommit is set to 0, changes will be commited every
+# 'commit every' seconds
+Database:
+    driver: SQLite
+    DBname: t/example.db
+    user: ~
+    password: ~
+    autoCommit: 0
+    commit every: 10
+
+Responses:
+    - Send reference:
+        topic: "machine/:machine_id/reference/set"
+        fields:
+            - part_number
+        explode:
+            - parameters
+
+Topics:
+    - Machine started:
+        topic:   "machine/:machine_id/connected"
+        SQL: >
+            SELECT part_number
+            FROM machine_state
+            WHERE machine_id = ?
+        place holders:
+            - machine_id
+        response: Send reference
+
+    - Request reference:
+        topic:    "machine/:machine_id/reference/get"
+        SQL: >
+            SELECT part_number
+            FROM machine_state
+            WHERE machine_id = ?
+        place holders:
+            - machine_id
+        response: Send reference
+

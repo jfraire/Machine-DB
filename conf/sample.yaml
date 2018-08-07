@@ -18,6 +18,12 @@ Database:
     autoCommit: 0
     commit every: 10
 
+Responses:
+    - Send reference:
+        topic: "machine/:machine_id/reference/set"
+        fields:
+            - part_number
+
 Topics:
     - Machine started:
         topic:   "machine/:machine_id/connected"
@@ -27,10 +33,7 @@ Topics:
             WHERE machine_id = ?
         place holders:
             - machine_id
-        response:
-            topic: "machine/:machine_id/reference/set"
-            fields:
-                - part_number
+        response: Send reference
 
     - Request reference:
         topic:    "machine/:machine_id/reference/get"
@@ -40,10 +43,7 @@ Topics:
             WHERE machine_id = ?
         place holders:
             - machine_id
-        response:
-            topic: "machine/:machine_id/reference/set"
-            fields:
-                - part_number
+        response: Send reference
 
     - Request for parameters:
         topic:    "machine/:machine_id/parameters/get"

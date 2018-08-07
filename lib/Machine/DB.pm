@@ -99,7 +99,8 @@ sub connect_database ($self) {
 # Create list of response objects
 sub build_responses ($self) {
     my %responses;
-    while (my ($nam, $val) = each $self->config->{Responses}->%*) {
+    foreach my $c ($self->config->{Responses}->@*) {
+        my ($nam, $val) = each %$c;
         AE::log 'info' => "Setting up response <$nam>";
         $val->{name} = $nam;
         my $r = Machine::DB::Responder->new(%$val);
@@ -113,7 +114,8 @@ sub start ($self) {
     croak 'The configuration does not have a Topics section'
         unless $self->conf->{Topics};
 
-    while (my ($nam, $def) = each $self->conf->{Topics}->%*) {
+    foreach my $c ($self->conf->{Topics}->%*) {
+        my ($nam, $def) = each %$c;
         AE::log 'info' => "Setting up conversation <$nam>";
 
         # Load the class that should process the current topic
