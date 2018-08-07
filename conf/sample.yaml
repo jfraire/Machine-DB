@@ -91,7 +91,7 @@ Topics:
             - reject_reason
             - cycle_time
             - measurements
-    
+
     - Machine disconnected:
         topic: "machine/:id/disconnected"
         SQL: >

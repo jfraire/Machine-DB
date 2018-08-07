@@ -7,16 +7,12 @@ use Getopt::Long;
 use Pod::Usage;
 use EV;
 use AnyEvent;
-use AnyEvent::MQTT;
 use AnyEvent::Log;
-use DBIx::Connector;
-use Machine::DB::Responder;
-use Data::Dumper;
 use strict;
 use warnings;
-use v5.10;
+use v5.24;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 # Processing of command line options
 my $id;
@@ -44,14 +40,15 @@ $AnyEvent::Log::FILTER->level('debug') if $debug;
 AE::log 'info' => "Starting";
 AE::log 'info' => "Working directory: " . `pwd`;
 
-# Processing of the configuration file
+# Processing of the configuration file and create Machine::DB instance
 pod2usage(
     -message => AE::log error => "A configuration file is required",
     -verbose => 1,
-    -exitval => 1)
-    unless defined $config_file && -r $config_file;
+    -exitval => 1
+) unless defined $config_file && -r $config_file;
 
 my $config;
+my $mdb;
 try {
     AE::log 'info' => "Loading configuration file from $config_file";
     $config = LoadFile($config_file);
@@ -66,26 +63,26 @@ catch {
     )
 };
 
-# Connect to the MQTT broker
-my $mqtt;
+
 try {
-    my $c = $config->{Broker};
-    AE::log(
-        fatal => "Broker section is missing from the configuration file"
-    ) unless defined $c;
-    $mqtt = AnyEvent::MQTT->new(
-        timeout      => 10,
-        will_topic   => "admin/disconnected/$id",
-        will_message => '',
-        will_retain  => 1,
-        %$c,
-        on_error => sub {
-            my ($fatal, $msg) = @_;
-            AE::log fatal => $msg if $fatal;
-            AE::log error => $msg;
-        }
+    AE::log 'info' => "Creating instance of Machine::DB";
+    $mdb = Machine::DB->new(
+        id            => $id,
+        configuration => $config,
     );
-    AE::log 'info' => 'Connecting to broker at <' . $c->{host} .'>';
+}
+catch {
+    pod2usage(
+        -message  => AE::log error => "Failed creating the Machine::DB instance: $_",
+        -exitval  => 1,
+        -verbose  => 99,
+        -sections => "CONFIGURATION FILE",
+    )
+};
+
+# Connect to the MQTT broker
+try {
+    $mdb->connect_broker;
 }
 catch {
     pod2usage(
@@ -97,18 +94,8 @@ catch {
 };
 
 # Connect to the database
-my $conn;
 try {
-    my $c      = $config->{Database};
-    my $drv    = $c->{driver}     || die "Database driver is missing";
-    my $dbname = $c->{DBname}     || die "DBname is missing";
-    AE::log 'info' => "Connecting to <$drv> database <$dbname>";
-
-    $conn = DBIx::Connector->new(
-        "dbi:$drv:dbname=$dbname",
-        $c->{user},
-        $c->{password},
-        { AutoCommit => 1, RaiseError => 1 });
+    $mdb->connect_database;
 }
 catch {
     pod2usage(
@@ -119,82 +106,22 @@ catch {
     )
 };
 
-# Process list of response objects
-my %responses;
-foreach my $resp (@{$config->{Responses}}) {
-    my ($nam) = keys   %$resp;
-    my ($val) = values %$resp;
-
-    AE::log 'info' => "Setting up response <$nam>";
-
-    try {
-        # Create response objects
-        $val->{name} = $nam;
-        my $r = Machine::DB::Responder->new(%$val);
-        $responses{$nam} = $r;
-    }
-    catch {
-        AE::log fatal => "Unable to create response <$nam>: $_\n";
-    };
+# Create response objects
+try {
+    $mdb->build_responses;
 }
+catch {
+    AE::log fatal => "Unable to create responses: $_\n";
+};
 
 
 # Process list of topics
-foreach my $conv (@{$config->{Topics}}) {
-	my ($nam) = keys %$conv;
-    my ($def) = values %$conv;
-#    say Dumper $def;
-    AE::log 'info' => "Setting up conversation <$nam>";
-
-    try {
-		# Load the class that should process the current topic
-		my $class;
-        if ($def->{'handler'}) {
-            $class = "Machine::DB::Handler::" . $def->{'handler'};
-        }
-        else {
-            $class = 'Machine::DB::Handler';
-        }
-
-		AE::log 'info' => "Loading $class for conversation <$nam>";
-		eval "require $class";
-		AE::log 'fatal' =>  "Error loading class <$class>: $@"
-			if $@;
-
-        AE::log 'info' => "Instantiating handler for <$nam>";
-		$def->{'topic name'} = $nam;
-
-        # Create or load the response object
-        if (exists $def->{response} && ref $def->{response}) {
-            # Create a new response object
-            AE::log debug => "Creating response for <$nam>";
-            my $r = Machine::DB::Responder->new($def->{response});
-            AE::log fatal => "Failed creating the response for $nam"
-                unless $r;
-            $def->{response} = $r;
-        }
-        elsif (exists $def->{response}) {
-            # Fetch the response object
-            AE::log fatal => "Response <" . $def->{response}
-                . "> does not exist"
-                unless exists $responses{$def->{response}};
-            $def->{response} = $responses{$def->{response}};
-        }
-        my $handler = $class->new($def);
-
-		AE::log 'info'
-            =>  "Subscribing to conversation <$nam> with topic <"
-                . $handler->subscription_topic . ">";
-		my $s = $mqtt->subscribe(
-			topic    => $handler->subscription_topic,
-			callback => $handler->subscription_callback($conn, $mqtt)
-		);
-		$s->recv;
-	}
-	catch {
-		AE::log 'fatal' => "Failed setting up conversation <$nam>: $_";
-	};
+try {
+    $mdb->start;
 }
+catch {
+    AE::log 'fatal' => "Failed subscribing to MQTT topics: $_";
+};
 
 my $cv = AnyEvent->condvar;
 
@@ -211,17 +138,9 @@ my $w1 = AnyEvent->signal(
 AE::log 'info' => "Entering asynchronous loop";
 $cv->recv;
 
-AE::log 'info' => "Disconnecting from the database";
-$conn->dbh->disconnect;
+AE::log 'info' => "Disconnecting from the database and broker";
+$mdb->disconnect;
 
-my $s = $mqtt->publish(
-    topic   => "admin/disconnected/$id",
-    message => '',
-    retain  => 1,
-);
-$s->recv;
-
-$mqtt->cleanup;
 AE::log 'info' => "Exiting";
 exit 0;
 
