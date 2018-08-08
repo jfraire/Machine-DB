@@ -1,8 +1,23 @@
-use Test::More tests => 5;
+use Test::More tests => 6;
+use Test::Warn;
+use AnyEvent::Log;
 use JSON;
 use DBIx::Connector;
 use strict;
 use warnings;
+
+
+# Note: AE::log fatal uses exit after logging to STDERR. So, it cannot
+# be trapped with eval blocks. See the docs on AnyEvent::Log
+# for the function AnyEvent::Log::fatal_exit.
+# However, since there are cases where the code does die (isa checks)
+# we need to trap everything with an eval.
+# Make AE::log fatal call die instead of exit:
+{
+    package AnyEvent::Log;
+    no warnings 'redefine';
+    sub fatal_exit () { die }
+}
 
 use_ok 'Machine::DB::Handler';
 
@@ -19,11 +34,6 @@ my $def = {
     'SQL'            => $sql,
     'place holders'  => [qw(crayola test)],
 };
-
-# test message
-my $crayola = int rand(1000);
-my $topic   = 'writting/is/for/Andy';
-my $msg     = encode_json { uno => 1, dos => 2, crayola => $crayola };
 
 # Create the handler
 my $h = Machine::DB::Handler->new($def);
@@ -48,19 +58,37 @@ is ref($cb), 'CODE',
     'The callback for subscription is a code reference';
 
 
-# Execute the callback
-$cb->($topic, $msg);
+{
+    # Execute the callback. Everything should be OK
+    my $crayola = int rand(1000);
+    my $topic   = 'writting/is/for/Andy';
+    my $msg     = encode_json { uno => 1, dos => 2, crayola => $crayola };
 
-# Check the contents of the database
-my $res = $conn->dbh->selectall_arrayref('
-    SELECT hola, crayola FROM callback_test
-');
+    $cb->($topic, $msg);
 
-# note explain $res;
+    # Check the contents of the database
+    my $res = $conn->dbh->selectall_arrayref('
+        SELECT hola, crayola FROM callback_test
+    ');
 
-is_deeply $res, [[$crayola, 'Andy']],
-    'Data was inserted correctly';
+    # note explain $res;
 
+    is_deeply $res, [[$crayola, 'Andy']],
+        'Data was inserted correctly';
+}
+
+{
+    # Execute the callback. Now it will fail for undefined place holder
+    my $crayola = undef;
+    my $topic   = 'writting/is/for/Andy';
+    my $msg     = encode_json { uno => 1, dos => 2, crayola => $crayola };
+
+    warning_like {
+        $cb->($topic, $msg);
+    }
+    qr/non-existant field/,
+    'Callback dies when a placeholder is undefined';
+}
 
 $conn->dbh->disconnect;
 done_testing();

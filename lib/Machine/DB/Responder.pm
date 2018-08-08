@@ -68,7 +68,7 @@ sub response_topic {
     my @topic;
     my @pieces = split qr{/}, $self->topic_template;
     foreach my $part (@pieces) {
-        if (defined $part && $part =~ /^\:(\w+)/) {
+        if ($part =~ /^\:(\w+)/) {
             # This part is a named parameter. Substitute it by its val
             push @topic, $data->{$1};
         }
@@ -98,7 +98,7 @@ sub explode_fields {
         AE::log('fatal',
             "Exploded object could not be decoded or it is not a hash "
             . "reference in response <" . $self->name . ">"
-        ) if $@ || !defined $decoded || ref($decoded) ne 'HASH';
+        ) if $@ || ref($decoded) ne 'HASH';
 
         # Add exploded field contents to the list of fields to include
         # in the response

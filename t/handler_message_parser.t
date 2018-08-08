@@ -1,4 +1,4 @@
-use Test::More tests => 3;
+use Test::More;
 use JSON;
 use strict;
 use warnings;
@@ -10,7 +10,7 @@ my $h = Machine::DB::Handler->new(
     'topic'          => ':this/is/:a/:test',
     'SQL'            => 'sql statement',
     'place holders'  => [1,2,3],
-    'response'       => { 
+    'response'       => {
         topic  => 'response/:goes/here',
         fields => [qw(hola crayola)],
     },
@@ -19,23 +19,42 @@ my $h = Machine::DB::Handler->new(
 ok ref($h->msg_parser) eq 'CODE',
     'The message parser is a code reference';
 
-my %msg = ( 
-    topic => 'mqtt/is/simple/bus',
-    messg => { hola => 1, crayola => 2 },
-);
+{
+    my %msg = (
+        topic => 'mqtt/is/simple/bus',
+        messg => { hola => 1, crayola => 2 },
+    );
 
-$msg{messg} = encode_json $msg{messg};
-# note explain \%msg;
+    $msg{messg} = encode_json $msg{messg};
+    # note explain \%msg;
 
-my $result = $h->parse_msg($msg{topic}, $msg{messg});
-# note explain $result;
+    my $result = $h->parse_msg($msg{topic}, $msg{messg});
+    # note explain $result;
 
-is_deeply $result, {
-    hola => 1,
-    crayola => 2,
-    this    => 'mqtt',
-    a       => 'simple',
-    test    => 'bus'
-}, 'Message was parsed correctly';
+    is_deeply $result, {
+        hola => 1,
+        crayola => 2,
+        this    => 'mqtt',
+        a       => 'simple',
+        test    => 'bus'
+    }, 'Message was parsed correctly';
+}
+
+{
+    my %msg = (
+        topic => 'mqtt/is/simple/bus',
+        messg => '',
+    );
+
+    my $result = $h->parse_msg($msg{topic}, $msg{messg});
+    # note explain $result;
+
+    is_deeply $result, {
+        this    => 'mqtt',
+        a       => 'simple',
+        test    => 'bus'
+    }, 'Empty message was parsed correctly';
+}
+
 
 done_testing();

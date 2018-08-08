@@ -61,8 +61,8 @@ has db_interactions => (
     isa      => sub {
         AE::log('fatal',
             'The list of SQL statements cannot be empty'
-        ) unless @{$_[0]} > 0;
-        foreach my $c (@{$_[0]}) {
+        ) unless $_[0]->@* > 0;
+        foreach my $c ( $_[0]->@* ) {
             AE::log('fatal',
                 "SQL statements must contain the key 'SQL'"
             ) unless exists $c->{SQL};
@@ -139,7 +139,7 @@ sub _build_msg_parser {
     my $i = 0;
     my @pieces = split qr{/}, $self->topic_template;
     foreach my $part (@pieces) {
-        if (defined $part && $part =~ /^\:(\w+)/) {
+        if ($part =~ /^\:(\w+)/) {
             # This part is a named parameter. Keep the index
             $index_for{$1} = $i;
         }
@@ -189,12 +189,6 @@ sub subscription_topic {
     return $tmpl;
 }
 
-sub encode_msg {
-    my ($self, $msg) = @_;
-    return '' unless defined $msg;
-    return encode_json($msg);
-}
-
 # Builds a hash with the fields to implode, encodes it, and saves it
 # in within a new key of the $data hash ref
 sub implode {
@@ -241,7 +235,7 @@ sub publish_response {
 
     # Build the MQTT response
     my ($rtopic, $rmsg) = $self->build_response($data);
-    $rmsg = $self->encode_msg($rmsg);
+    $rmsg = encode_json($rmsg);
 
     # We need to keep the cv for pending publications,
     # and they need to clean after themselves
@@ -288,7 +282,6 @@ sub subscription_callback {
 
         # Builds hash ref with the topic and body of the message
         my $data = $self->parse_msg($topic, $msg);
-        return unless $data;
 
         # Call pre-processing callbacks
         $self->preprocess($conn, $data);
@@ -296,14 +289,27 @@ sub subscription_callback {
         # Implode data
         $data = $self->implode($data) if $self->has_implode_fields;
 
-        # Execute the list of SQL statements
         my $error;
+        my $dm =
+            'Tried to use a non-existant field as a '
+            . 'place holder in handler ' . $self->name;
+        $dm .= ' (may be it was imploded?)'
+            if $self->has_implode_fields;
+
+        # Execute the list of SQL statements
         try {
             $conn->txn( ping => sub {
                 foreach my $inter (@{$self->db_interactions}) {
 
                     # Get the values to bind to the sql statement
-                    my @bind = map { $data->{$_} } @{$inter->{'place holders'}};
+                    my @bind;
+                    foreach ( $inter->{'place holders'}->@* ) {
+                        croak $dm
+                            if !exists $data->{$_} || !defined $data->{$_};
+
+                        push @bind, $data->{$_};
+                    }
+
                     $inter->{sth}->execute(@bind);
 
                     if ($inter->{SQL} =~ /^\s*SELECT/si) {
@@ -312,7 +318,7 @@ sub subscription_callback {
                         $inter->{sth}->finish;
 
                         # Combine fetched data with message data
-                        if (defined $rec && %$rec) {
+                        if (defined $rec) {
                             my %combined = (%$data, %$rec);
                             $data = \%combined;
                         }

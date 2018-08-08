@@ -1,7 +1,8 @@
 use Test::More tests => 12;
 use Test::Warn;
-use YAML;
+use AnyEvent::Log;
 use Machine::DB::Handler;
+use YAML;
 use strict;
 use warnings;
 
